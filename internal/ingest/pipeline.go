@@ -83,7 +83,7 @@ const defaultMaxFileBytes int64 = 4 << 20 // 4 MiB
 type Pipeline struct {
 	db           *sql.DB
 	logger       *slog.Logger
-	tc           chunk.TokenCounter
+	tc           chunk.WordEstimator
 	maxFileBytes int64
 	encodings    encodingRules
 	// scanner screens file content for credentials before it is indexed. Nil

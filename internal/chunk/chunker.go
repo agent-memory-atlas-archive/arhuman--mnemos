@@ -1,8 +1,7 @@
 // Package chunk turns a ParsedDoc into deterministic, line-anchored chunks.
-// Markdown chunks by heading, code by declaration, and everything else by
-// paragraph/line windows. All chunkers share a token budget (target/overlap)
-// and a pluggable TokenCounter so chunk sizing stays config-driven and
-// model-agnostic in V0.
+// Section boundaries (heading, declaration, paragraph) are decided upstream by
+// the parser; this package only windows each section to a token budget
+// (target/overlap) so chunk sizing stays config-driven.
 package chunk
 
 import (
@@ -28,45 +27,22 @@ func ConfigFrom(targetTokens, overlapTokens int) Config {
 	return Config{TargetTokens: targetTokens, OverlapTokens: overlapTokens}
 }
 
-// Chunker splits a parsed document into ordered chunks. Implementations must be
-// deterministic: the same ParsedDoc always yields identical chunks, which keeps
-// re-ingest idempotent and golden tests stable.
-type Chunker interface {
-	// Chunk returns the chunks for doc. Ordinals are 0-based and contiguous.
-	Chunk(doc model.ParsedDoc) []model.Chunk
-}
-
-// Dispatch selects the chunker family for doc.Kind and returns its chunks.
-// StructureOnly documents (e.g. OKF index.md) yield no chunks.
-func Dispatch(doc model.ParsedDoc, cfg Config, tc TokenCounter) []model.Chunk {
+// Dispatch turns doc into ordered chunks, windowing each section to cfg's
+// token budget. StructureOnly documents (e.g. OKF index.md) yield no chunks.
+// Deterministic: the same ParsedDoc always yields identical chunks, which
+// keeps re-ingest idempotent and golden tests stable.
+func Dispatch(doc model.ParsedDoc, cfg Config, tc WordEstimator) []model.Chunk {
 	if doc.StructureOnly {
 		return nil
 	}
-	var c Chunker
-	switch doc.Kind {
-	case model.KindMarkdown:
-		c = MarkdownChunker{cfg: cfg, tc: tc}
-	case model.KindGoCode:
-		c = CodeChunker{cfg: cfg, tc: tc}
-	default:
-		c = TextChunker{cfg: cfg, tc: tc}
-	}
 
-	return c.Chunk(doc)
-}
-
-// buildChunks renders doc's sections into ordered chunks, windowing each section
-// with split. It is the shared body of every Chunker — only the per-kind split
-// differs — so the section-iteration, ordinal counter, and per-chunk assembly
-// live in exactly one place. Tags and metadata are derived once and reused.
-func buildChunks(doc model.ParsedDoc, tc TokenCounter, split func(model.Section) []window) []model.Chunk {
 	meta := chunkMetadata(doc)
 	tags := joinTags(doc)
 
 	var chunks []model.Chunk
 	ordinal := 0
 	for _, sec := range doc.Sections {
-		for _, w := range split(sec) {
+		for _, w := range wholeOrWindows(sec, tc, cfg) {
 			chunks = append(chunks, model.Chunk{
 				Ordinal:      ordinal,
 				HeadingPath:  sec.HeadingPath,
@@ -97,7 +73,7 @@ type window struct {
 // with overlap carry-over. It is the shared split body for every chunker family:
 // they differ only in how upstream parsing carved the sections, not in how an
 // oversized section is windowed.
-func wholeOrWindows(sec model.Section, tc TokenCounter, cfg Config) []window {
+func wholeOrWindows(sec model.Section, tc WordEstimator, cfg Config) []window {
 	if cfg.TargetTokens <= 0 || tc.Count(sec.Content) <= cfg.TargetTokens {
 		return []window{{content: sec.Content, startLine: sec.StartLine, endLine: sec.EndLine}}
 	}
@@ -109,7 +85,7 @@ func wholeOrWindows(sec model.Section, tc TokenCounter, cfg Config) []window {
 // of carry-over, anchoring each window to its absolute 1-based line range
 // (firstLine corresponds to lines[0]). The overlap is expressed in tokens but
 // applied by rewinding whole lines so ranges stay exact.
-func windowByTokens(lines []string, firstLine int, tc TokenCounter, target, overlap int) []window {
+func windowByTokens(lines []string, firstLine int, tc WordEstimator, target, overlap int) []window {
 	var out []window
 	n := len(lines)
 	i := 0
