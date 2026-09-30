@@ -38,7 +38,6 @@ graph_seed_depth = 3        # how many top hits graph expansion pulls neighbors 
 graph_decay = 0.5           # score scale applied to a seed's injected neighbors (0,1]
 
 [mcp]
-transport = "stdio"
 allow_write = false         # gates mnemos.remember
 allow_delete = false        # gates mnemos.forget and mnemos.move
 result_mode = "text"        # wire shape: "text" | "structured" | "both" (legacy double-emit)

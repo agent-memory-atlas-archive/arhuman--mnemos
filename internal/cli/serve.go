@@ -11,8 +11,8 @@ import (
 	"github.com/arhuman/mnemos/internal/security"
 )
 
-// newServeCmd builds the `serve` command, which runs the MCP server over the
-// configured transport (stdio only for now). stdout is the MCP transport, so the
+// newServeCmd builds the `serve` command, which runs the MCP server over
+// stdio (the only supported transport). stdout is the MCP transport, so the
 // command prints nothing to it; all diagnostics go through the slog logger on
 // stderr.
 func newServeCmd(state *rootState) *cobra.Command {
@@ -28,10 +28,6 @@ func newServeCmd(state *rootState) *cobra.Command {
 
 func runServe(cmd *cobra.Command, state *rootState) error {
 	return withStore(state, false, func(a *app.App) error {
-		if t := a.Config.MCP.Transport; t != "" && t != "stdio" {
-			a.Logger.Warn("unsupported mcp transport, falling back to stdio", "transport", t)
-		}
-
 		// [capture].dir is validated and anchored to the tree root at load time
 		// (config.Validate / CaptureLocation): an absolute value inside the tree is
 		// accepted, one that escapes is rejected. No serve-local check is needed.

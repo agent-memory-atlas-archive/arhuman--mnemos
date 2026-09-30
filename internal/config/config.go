@@ -103,8 +103,7 @@ type SearchConfig struct {
 
 // MCPConfig configures the MCP server surface.
 type MCPConfig struct {
-	Transport  string `koanf:"transport"`
-	AllowWrite bool   `koanf:"allow_write"`
+	AllowWrite bool `koanf:"allow_write"`
 	// AllowDelete gates the destructive tree operations mnemos.forget and
 	// mnemos.move (and their CLI counterparts). It is distinct from AllowWrite
 	// so capture can be enabled without granting delete/move. Default false.
@@ -204,7 +203,6 @@ temporal_halflife = "168h"
 model = "all-MiniLM-L6-v2"
 
 [mcp]
-transport = "stdio"
 allow_write = false
 allow_delete = false
 # How tool responses are serialized: "text" (default, one JSON text block),

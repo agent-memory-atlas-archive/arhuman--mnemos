@@ -29,7 +29,6 @@ func TestDefaultTOMLParsesToDefaults(t *testing.T) {
 	require.Equal(t, 700, cfg.Chunking.TargetTokens)
 	require.Equal(t, 80, cfg.Chunking.OverlapTokens)
 	require.Equal(t, 12, cfg.Search.DefaultLimit)
-	require.Equal(t, "stdio", cfg.MCP.Transport)
 	require.False(t, cfg.MCP.AllowWrite)
 	require.True(t, cfg.Security.ExcludeSecrets)
 	require.Contains(t, cfg.Indexing.Include, "**/*.md")
@@ -85,7 +84,6 @@ allow_write = true
 	require.True(t, cfg.MCP.AllowWrite)
 	// Unspecified keys keep their defaults.
 	require.Equal(t, 700, cfg.Chunking.TargetTokens)
-	require.Equal(t, "stdio", cfg.MCP.Transport)
 }
 
 func TestLoadMissingFileFallsBackToDefaults(t *testing.T) {
