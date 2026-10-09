@@ -298,6 +298,38 @@ The skill is advisory: the model decides when to fire each mode. Claude Code hoo
 
 PreCompact and Stop persistence (session summaries, capture flush) stays in the skill because those hook events cannot inject context into the model.
 
+## Connect opencode
+
+One global entry serves every project. Add it to `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "mnemos": { "type": "local", "command": ["mnemos", "serve"], "enabled": true }
+  }
+}
+```
+
+Or merge it idempotently into an existing file (requires `jq`; plain JSON only, not JSONC):
+
+```bash
+f=~/.config/opencode/opencode.json
+[ -f "$f" ] || echo '{"$schema":"https://opencode.ai/config.json"}' > "$f"
+jq '.mcp.mnemos = {type: "local", command: ["mnemos", "serve"], enabled: true}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+```
+
+Verify with `opencode mcp list` (should show `✓ mnemos  connected`).
+
+No `--config` is needed here, unlike Claude Code: opencode spawns local MCP servers
+in the project directory, so a bare `mnemos serve` serves the project's `.mnemos/`
+when one exists and falls back to `~/.mnemos` otherwise. Two things override that
+discovery, because opencode passes its whole environment to the server: an exported
+`$MNEMOS_DIR` or `$CLAUDE_PROJECT_DIR` pins every project to one workspace. To serve
+one fixed workspace on purpose, add `"--mnemos-dir", "/abs/path/.mnemos"` to `command`
+(opencode does not expand `~`). Tools appear as `mnemos_mnemos_search` and so on, since
+opencode replaces the dots in tool names.
+
 ## Capabilities
 
 Claude reaches your memory through MCP tools (and you through the matching CLI
