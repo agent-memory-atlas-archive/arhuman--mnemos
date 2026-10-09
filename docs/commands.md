@@ -89,4 +89,5 @@ workspace or nothing relevant to inject.
 
 See also [configuration.md](configuration.md) for `<MNEMOS_DIR>/mnemos.toml`, and
 [paths-and-indexing.md](paths-and-indexing.md) for how state is located and how URIs
-are resolved.
+are resolved. For running commands against a remote workspace over SSH, see
+[remote-access.md](remote-access.md).

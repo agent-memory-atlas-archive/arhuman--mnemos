@@ -100,4 +100,5 @@ converting files to UTF-8 upstream when you control the corpus. See
 
 See also [commands.md](commands.md) for the CLI reference, and
 [paths-and-indexing.md](paths-and-indexing.md) for how state is located, what gets
-indexed, where writes land, and the idempotency/URI rules.
+indexed, where writes land, and the idempotency/URI rules. For serving a workspace
+to other machines over SSH, see [remote-access.md](remote-access.md).

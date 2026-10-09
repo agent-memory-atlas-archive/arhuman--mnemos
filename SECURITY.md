@@ -29,7 +29,10 @@ will coordinate a fix and disclosure timeline with you.
 
 mnemos is designed to be safe by default:
 
-- **No network, no telemetry.** The MCP server is stdio-only.
+- **No network, no telemetry.** mnemos itself never opens a network listener;
+  the MCP server speaks stdio only. Remote access goes through SSH, which
+  provides authentication and encryption; see
+  [docs/remote-access.md](docs/remote-access.md).
 - **Read-only by default.** Writes require `allow_write = true`; destructive
   operations (forget, move) require a separate `allow_delete = true`.
 - **Path confinement.** Every caller-supplied path is validated before any disk
@@ -51,4 +54,7 @@ please report it.
   tree root is owned by the single user running it; under that trust model the
   attacker would already control the directory. This is an inherent limitation
   of lock-free file storage and is not currently mitigated; do not point mnemos
-  at a tree writable by untrusted users.
+  at a tree writable by untrusted users. A centralized tree that several people
+  can write to (for example multiple accounts with write access to a shared docs
+  checkout) breaks the single-owner assumption; keep the tree writable only by
+  the account running mnemos.

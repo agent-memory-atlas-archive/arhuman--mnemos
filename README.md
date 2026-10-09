@@ -202,6 +202,9 @@ To share it with the repo, commit it via `.mcp.json` instead:
 Verify with `claude mcp list` (should show `mnemos ✓ connected`) and `/mcp` inside
 a session. Claude then calls the tools automatically; see [Capabilities](#capabilities).
 
+To use a workspace that lives on another machine, run stdio over SSH; mnemos opens
+no network listener. See [docs/remote-access.md](docs/remote-access.md).
+
 <details>
 <summary>Why the <code>--config</code> path must be absolute</summary>
 
@@ -467,6 +470,7 @@ baseline. See [docs/architecture.md](docs/architecture.md#retrieval-evaluation).
 - **[docs/configuration.md](docs/configuration.md)**: the layered `<MNEMOS_DIR>/mnemos.toml`, with all defaults.
 - **[docs/paths-and-indexing.md](docs/paths-and-indexing.md)** — how state is located, what gets indexed, where writes land, and the idempotency/URI rules.
 - **[docs/architecture.md](docs/architecture.md)** — design principles and the retrieval-evaluation methodology.
+- **[docs/remote-access.md](docs/remote-access.md)**: using a workspace on another machine over SSH, restricting keys, and why there is no HTTP/SSE transport.
 
 ## Security
 
