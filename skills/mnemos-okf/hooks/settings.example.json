@@ -20,6 +20,16 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v mnemos >/dev/null || exit 0; mnemos hook stop 2>/dev/null; exit 0 # mnemos-okf-hook"
+          }
+        ]
+      }
     ]
   }
 }

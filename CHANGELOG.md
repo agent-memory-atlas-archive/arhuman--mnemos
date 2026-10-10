@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- 2026-10-10: `mnemos hook stop`, a Claude Code `Stop` hook that writes one
+  condensed journal entry per turn (request, files touched, final assistant text)
+  under `kb/journal/<date>/`. Gated by `[mcp].allow_write`, secret-scanned, and
+  silent on every failure. The bundled hook settings wire it.
+
 ## [0.3.0] - 2026-09-28
 
 The first release: an FTS5 MVP plus capture. The default binary is lexical,
