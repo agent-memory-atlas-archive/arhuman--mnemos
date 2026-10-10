@@ -292,14 +292,15 @@ done (1)
 
 ### Automation with hooks
 
-The skill is advisory: the model decides when to fire each mode. Claude Code hooks make the memory loop deterministic. `make install-skill` (or `make install-hooks` on its own) merges [`skills/mnemos-okf/hooks/settings.example.json`](skills/mnemos-okf/hooks/settings.example.json) into your `~/.claude/settings.json` idempotently, keeping a `.bak`; pass `SKIP_HOOKS=1` to opt out, or merge the file by hand for a project-level `.claude/settings.json`. Two hooks are activated:
+The skill is advisory: the model decides when to fire each mode. Claude Code hooks make the memory loop deterministic. `make install-skill` (or `make install-hooks` on its own) merges [`skills/mnemos-okf/hooks/settings.example.json`](skills/mnemos-okf/hooks/settings.example.json) into your `~/.claude/settings.json` idempotently, keeping a `.bak`; pass `SKIP_HOOKS=1` to opt out, or merge the file by hand for a project-level `.claude/settings.json`. Three hooks are activated:
 
 | Hook | Matcher | Effect |
 |------|---------|--------|
 | `SessionStart` | `startup\|resume\|compact` | Injects the working set at session start: `mnemos task list` plus recent decisions (`mnemos ls decisions`). The `compact` matcher re-injects it after context compaction. |
 | `UserPromptSubmit` | recall cue phrases | When the prompt matches "as we decided", "what was", "remember when", and similar cues, injects the top 3 `mnemos search` hits. Requires `jq`. Silent no-op when no cue matches. |
+| `Stop` | (all turns) | `mnemos hook stop` writes one journal entry per turn (request, files touched, final assistant text) under `journal/<date>/`. Journal entries are excluded from search and reach the kb only when CONSOLIDATE promotes them. Needs `allow_write = true`; silent no-op otherwise. |
 
-PreCompact and Stop persistence (session summaries, capture flush) stays in the skill because those hook events cannot inject context into the model.
+PreCompact persistence (session summaries, capture flush) stays in the skill because that hook event cannot inject context into the model.
 
 ## Connect opencode
 

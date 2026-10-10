@@ -74,10 +74,15 @@ fallback for files that don't declare one.
 | `mnemos serve` | Run the MCP server (stdio), exposing the search, read, context, related, list, remember, okfy, forget, and move tools |
 | `mnemos hook session-start [--max-tokens N]` | Claude Code `SessionStart` hook: inject the scoped working set (default cap 1500 tokens) |
 | `mnemos hook recall [--limit N] [--max-tokens N]` | Claude Code `UserPromptSubmit` hook: inject cited recall (defaults: 3 results, 600 tokens) |
+| `mnemos hook stop` | Claude Code `Stop` hook: write one journal entry for the turn that just ended (request, files touched, final assistant text) under `journal/<date>/`. Requires `[mcp] allow_write = true` |
 
-Both hook subcommands read the hook JSON from stdin, inject scoped markdown on
-stdout, and stay silent (exit 0, no output) when the project has no mnemos
-workspace or nothing relevant to inject.
+All hook subcommands read the hook JSON from stdin and stay silent (exit 0, no
+output) when the project has no mnemos workspace or nothing relevant to do.
+`session-start` and `recall` inject scoped markdown on stdout. `stop` prints
+nothing: it reads the transcript named in the payload and writes through the same
+path as `mnemos.remember`, so the entry is secret-scanned and dropped (not
+failed) when a secret is found or writes are disabled. Re-running it on the same
+turn overwrites that turn's entry instead of adding one.
 
 ## Evaluation
 
