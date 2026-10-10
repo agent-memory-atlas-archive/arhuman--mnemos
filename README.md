@@ -362,6 +362,8 @@ commands). Note the spelling: `mnemos.search` is the **MCP tool** Claude calls;
 - **`mnemos.forget`**: remove a file from the OKF tree and de-index it; idempotent.
 - **`mnemos.move`**: move a file **or directory** within the tree and re-index it under the new path. A directory moves its whole subtree, preserving each document's collection. Inbound markdown links to the old paths are not rewritten in V0 (logged as a warning).
 
+The journal has a CLI counterpart: `mnemos journal pending` lists unreviewed entries, `mnemos journal promote <entry-uri> <target|none>` stamps one (`allow_write`), and `mnemos journal prune --older-than 30d` lists reviewed entries past the age, deleting them with `--apply` (`allow_delete`). Unreviewed entries are never pruned.
+
 ## Keep memory fresh
 
 Run a watcher to reindex on change (incremental; removes deleted files):

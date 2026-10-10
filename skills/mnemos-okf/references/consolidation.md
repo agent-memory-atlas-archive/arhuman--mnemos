@@ -122,6 +122,9 @@ and the candidates, and write nothing.
    the main one and cite the entry in every document's `Sources`. A stamped entry
    is refused by the tool; never try to re-stamp it.
 6. **Leave entries in place.** Never move, forget or edit a journal entry during
-   a pass. Pruning the journal is a separate, explicit command.
+   a pass. Pruning the journal is a separate, explicit command the user runs:
+   `mnemos journal prune --older-than 30d` lists reviewed entries past the age,
+   and `--apply` deletes them (requires `allow_delete = true`). Unreviewed entries
+   are never pruned.
 
 Add a `Journal: N reviewed, M promoted` line to the pass report.

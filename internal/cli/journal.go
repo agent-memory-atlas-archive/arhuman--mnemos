@@ -59,8 +59,8 @@ func newJournalCmd(state *rootState) *cobra.Command {
 		Short: "Delete reviewed journal entries older than a duration (dry run by default)",
 		Long: "List, or with --apply delete, the journal entries already stamped with promoted_to " +
 			"whose capture is older than --older-than (a Go duration such as 12h, or whole days such as 30d). " +
-			"Unreviewed entries are never pruned. A dated directory left holding only log.md or index.md is " +
-			"removed with them. --apply requires [mcp].allow_delete=true.",
+			"Unreviewed entries are never pruned. A dated directory left holding only its log.md is removed " +
+			"with them; one holding an index.md is kept. --apply requires [mcp].allow_delete=true.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runJournalPrune(cmd, state, olderThan, apply, pruneJSON)

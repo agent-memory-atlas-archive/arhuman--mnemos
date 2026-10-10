@@ -222,7 +222,9 @@ Journal entries (written by the Stop hook) are excluded from search and become
 citable only by promotion. Promote only what an entry states explicitly, never a
 decision inferred from it; after writing the kb document, record the outcome with
 `mnemos.journal_promote` (`none` when nothing was worth keeping). Never move,
-forget or edit a journal entry during a pass.
+forget or edit a journal entry during a pass: pruning reviewed entries is the
+user's explicit `mnemos journal prune --older-than 30d --apply` (needs
+`allow_delete = true`).
 
 ## Notes
 

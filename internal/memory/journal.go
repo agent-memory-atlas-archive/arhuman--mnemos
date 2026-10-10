@@ -185,7 +185,7 @@ type PruneJournalInput struct {
 
 // PruneJournalResult reports a prune. Pruned lists the entries removed (or, in
 // a dry run, the ones that would be); RemovedDirs lists the tree-relative
-// directories deleted because the prune left only reserved OKF files in them.
+// directories deleted because the prune left only their log.md in them.
 type PruneJournalResult struct {
 	Pruned            []JournalEntry `json:"pruned"`
 	SkippedUnreviewed int            `json:"skipped_unreviewed"`
@@ -210,9 +210,9 @@ type PruneJournalResult struct {
 // [mcp].allow_delete and refuses before any read when it is off. Each entry is
 // removed through Forget (index first, then disk); the first failure stops the
 // prune and is returned with what was removed so far. Then every directory that
-// held a removed entry and now holds nothing but reserved OKF files (log.md,
-// index.md) loses those files and is removed; a directory holding anything else
-// is left untouched. An OlderThan <= 0 is refused so a typo cannot empty the
+// held a removed entry and now holds nothing but its log.md loses it and is
+// removed; a directory holding anything else, an index.md included, is left
+// untouched. An OlderThan <= 0 is refused so a typo cannot empty the
 // tier.
 func (s *Service) PruneJournal(ctx context.Context, in PruneJournalInput) (PruneJournalResult, error) {
 	res := PruneJournalResult{Pruned: []JournalEntry{}, RemovedDirs: []string{}, Applied: in.Apply}
