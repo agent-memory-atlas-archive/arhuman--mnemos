@@ -16,7 +16,6 @@ import (
 	"github.com/arhuman/mnemos/internal/browse"
 	"github.com/arhuman/mnemos/internal/memory"
 	"github.com/arhuman/mnemos/internal/search"
-	"github.com/arhuman/mnemos/internal/security"
 	"github.com/arhuman/mnemos/internal/storage"
 )
 
@@ -46,6 +45,10 @@ const (
 	// long prompt is almost always pasted material (a log, a file, a diff), not a
 	// question worth a memory lookup.
 	hookRecallMaxPromptChars = 2000
+
+	// hookStdinMax caps the hook JSON payload read from stdin. A real payload is
+	// a few KiB; anything past the cap is ignored rather than read whole.
+	hookStdinMax = 1 << 20
 )
 
 // hookInput is the subset of the Claude Code hook JSON payload the subcommands
@@ -256,8 +259,8 @@ func recentDecisions(ctx context.Context, a *app.App, limit int) []browse.Entry 
 // the prompt is absent/oversized/not question-shaped, yields no salient terms,
 // no workspace resolves, or the search returns nothing.
 func hookRecall(cmd *cobra.Command, state *rootState, limit, maxTokens int) string {
-	raw, err := io.ReadAll(cmd.InOrStdin())
-	if err != nil {
+	raw, ok := readHookStdin(cmd)
+	if !ok {
 		return ""
 	}
 	prompt := parsePrompt(raw)
@@ -270,7 +273,7 @@ func hookRecall(cmd *cobra.Command, state *rootState, limit, maxTokens int) stri
 	}
 
 	var buf bytes.Buffer
-	err = withStore(state, false, func(a *app.App) error {
+	err := withStore(state, false, func(a *app.App) error {
 		// The lexical engine only: recall runs in the prompt-submit hot path and
 		// must never load the ONNX model. The memory service applies the
 		// visibility denylist to the results.
@@ -295,6 +298,17 @@ func hookRecall(cmd *cobra.Command, state *rootState, limit, maxTokens int) stri
 	}
 
 	return capTokens(buf.String(), maxTokens)
+}
+
+// readHookStdin reads the hook payload from stdin, or false when the read fails
+// or the payload exceeds hookStdinMax (truncating it could still parse).
+func readHookStdin(cmd *cobra.Command) ([]byte, bool) {
+	raw, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), hookStdinMax+1))
+	if err != nil || len(raw) > hookStdinMax {
+		return nil, false
+	}
+
+	return raw, true
 }
 
 // ctx returns the command's context, or a background context when none is set
@@ -444,50 +458,4 @@ func capTokens(s string, maxTokens int) string {
 	truncated = strings.ToValidUTF8(truncated, "")
 
 	return truncated + "\n_[mnemos: truncated to ~" + strconv.Itoa(maxTokens) + " tokens]_\n"
-}
-
-// newHookStopCmd builds `hook stop`: the Stop hook journal writer. It condenses
-// the turn that just ended (request, files touched, final assistant text) into
-// one journal entry (ADR-0011) and prints nothing, whatever the outcome.
-func newHookStopCmd(state *rootState) *cobra.Command {
-	return &cobra.Command{
-		Use:   "stop",
-		Short: "Write one journal entry per turn for a Claude Code Stop hook",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			hookStop(cmd, state)
-
-			return nil
-		},
-	}
-}
-
-// hookStop writes the journal entry for the turn described by the Stop payload
-// on stdin. Every failure (bad payload, re-entrant stop, missing transcript, no
-// workspace, write gate off, secret found, ingest error) is swallowed: the
-// entry is dropped and the session is never affected.
-func hookStop(cmd *cobra.Command, state *rootState) {
-	raw, err := io.ReadAll(cmd.InOrStdin())
-	if err != nil {
-		return
-	}
-	var in hookInput
-	if json.Unmarshal(raw, &in) != nil || in.StopHookActive || in.TranscriptPath == "" {
-		return
-	}
-	turn, ok := readLastTurn(in.TranscriptPath, in.Cwd)
-	if !ok {
-		return
-	}
-
-	_ = withStore(state, false, func(a *app.App) error {
-		svc := memory.New(a.DB, a.Config, a.TreeRoot(), security.NewRegexScanner(), a.Logger)
-		turn.SessionID = in.SessionID
-		_, rerr := svc.WriteJournalEntry(ctx(cmd), turn)
-		if rerr != nil {
-			a.Logger.Debug("hook stop: journal entry dropped", "err", rerr)
-		}
-
-		return nil
-	})
 }

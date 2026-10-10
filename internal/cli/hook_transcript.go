@@ -9,12 +9,62 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
+	"github.com/arhuman/mnemos/internal/app"
 	"github.com/arhuman/mnemos/internal/memory"
+	"github.com/arhuman/mnemos/internal/security"
 )
 
 // transcriptMaxLine is the longest transcript line the scanner accepts. A tool
 // result can embed a whole file, so the default 64 KiB is far too small.
 const transcriptMaxLine = 16 << 20
+
+// newHookStopCmd builds `hook stop`: the Stop hook journal writer. It condenses
+// the turn that just ended (request, files touched, final assistant text) into
+// one journal entry (ADR-0011) and prints nothing, whatever the outcome.
+func newHookStopCmd(state *rootState) *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop",
+		Short: "Write one journal entry per turn for a Claude Code Stop hook",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			hookStop(cmd, state)
+
+			return nil
+		},
+	}
+}
+
+// hookStop writes the journal entry for the turn described by the Stop payload
+// on stdin. Every failure (bad payload, re-entrant stop, missing transcript, no
+// workspace, write gate off, secret found, ingest error) is swallowed: the
+// entry is dropped and the session is never affected.
+func hookStop(cmd *cobra.Command, state *rootState) {
+	raw, ok := readHookStdin(cmd)
+	if !ok {
+		return
+	}
+	var in hookInput
+	if json.Unmarshal(raw, &in) != nil || in.StopHookActive || in.TranscriptPath == "" {
+		return
+	}
+	turn, ok := readLastTurn(in.TranscriptPath, in.Cwd)
+	if !ok {
+		return
+	}
+
+	_ = withStore(state, false, func(a *app.App) error {
+		svc := memory.New(a.DB, a.Config, a.TreeRoot(), security.NewRegexScanner(), a.Logger)
+		turn.SessionID = in.SessionID
+		_, rerr := svc.WriteJournalEntry(ctx(cmd), turn)
+		if rerr != nil {
+			a.Logger.Debug("hook stop: journal entry dropped", "err", rerr)
+		}
+
+		return nil
+	})
+}
 
 // transcriptLine is the subset of a Claude Code transcript JSONL line the Stop
 // hook reads.
@@ -46,9 +96,10 @@ type toolInput struct {
 }
 
 // readLastTurn parses the transcript at path and returns the last turn, or false
-// when the file is unreadable or holds no real user prompt. Malformed lines and
-// sidechain (subagent) lines are skipped. File paths are rendered relative to
-// cwd when they sit inside it.
+// when the file is unreadable, a line exceeds transcriptMaxLine (the turn in
+// hand would be a stale one), or it holds no real user prompt. Malformed lines
+// and sidechain (subagent) lines are skipped. File paths are rendered relative
+// to cwd when they sit inside it.
 func readLastTurn(path, cwd string) (memory.JournalTurn, bool) {
 	f, err := os.Open(path) //nolint:gosec // the transcript path comes from the harness payload by design
 	if err != nil {
@@ -79,7 +130,7 @@ func readLastTurn(path, cwd string) (memory.JournalTurn, bool) {
 		default:
 		}
 	}
-	if !found {
+	if sc.Err() != nil || !found {
 		return memory.JournalTurn{}, false
 	}
 

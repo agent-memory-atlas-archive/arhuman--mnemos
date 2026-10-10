@@ -396,3 +396,52 @@ func TestHookStopKeepsPromotedEntry(t *testing.T) {
 	require.Contains(t, string(raw), "promoted_to: none")
 	require.Equal(t, "no pending journal entries\n", runCmd(t, "journal", "pending"))
 }
+
+// TestHookStopScanErrorDropsEntry reproduces P23: a transcript line past the
+// scanner cap must drop the entry, never journal the turn before it.
+func TestHookStopScanErrorDropsEntry(t *testing.T) {
+	stopWorkspace(t)
+	transcript := writeTranscript(t,
+		userLine("2026-10-10T05:00:00Z", "first request"),
+		assistantLine(false, textBlock("first outcome")),
+		assistantLine(false, textBlock(strings.Repeat("x", 17<<20))),
+		userLine("2026-10-10T06:00:00Z", "second request"),
+		assistantLine(false, textBlock("second outcome")),
+	)
+
+	out := runHook(t, stopPayload(t, transcript, false), "hook", "stop")
+
+	require.Empty(t, out)
+	require.Empty(t, journalEntries(t))
+}
+
+// TestHookStdinLimit pins that an oversized hook payload is ignored rather than
+// read whole: a valid payload padded past the stdin cap (1 MiB) stays silent.
+func TestHookStdinLimit(t *testing.T) {
+	padding := strings.Repeat(" ", 2<<20)
+
+	t.Run("recall", func(t *testing.T) {
+		chdir(t, t.TempDir())
+		t.Setenv("CLAUDE_PROJECT_DIR", "")
+		runCmd(t, "init")
+		seedKB(t, "decisions/0002-staging.md",
+			"---\ntype: decision\ntitle: Staging on the VPS\n---\n# Staging on the VPS\n\nWe choose staging on the vps because it is cheap.\n")
+		runCmd(t, "ingest", ".", "--collection", "demo")
+		payload := `{"prompt":"why did we choose staging on the vps?"}`
+
+		require.Contains(t, runHook(t, payload, "hook", "recall"), "## mnemos recall")
+		require.Empty(t, runHook(t, payload+padding, "hook", "recall"))
+	})
+
+	t.Run("stop", func(t *testing.T) {
+		stopWorkspace(t)
+		transcript := writeTranscript(t,
+			userLine("2026-10-10T05:31:42Z", "do the thing"),
+			assistantLine(false, textBlock("did the thing")),
+		)
+
+		runHook(t, stopPayload(t, transcript, false)+padding, "hook", "stop")
+
+		require.Empty(t, journalEntries(t))
+	})
+}
