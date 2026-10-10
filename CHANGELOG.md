@@ -20,6 +20,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - 2026-10-10: the `mnemos-okf` skill's CONSOLIDATE mode reviews pending journal
   entries: it promotes only what an entry states explicitly into kb documents,
   then records each outcome with `mnemos.journal_promote`.
+- 2026-10-10: `mnemos search` prints `superseded by <uri>` under a superseded
+  hit, with `(not in the index)` when the replacement is not indexed.
 
 ## [0.3.0] - 2026-09-28
 

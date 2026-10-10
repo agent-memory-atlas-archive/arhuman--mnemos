@@ -141,7 +141,8 @@ func buildBaseRetriever(cmd *cobra.Command, a *app.App, semantic bool) (search.R
 //     score 12.7
 //
 // The heading shown is the last segment of the chunk's heading path; results
-// with no heading omit the "#…" suffix.
+// with no heading omit the "#…" suffix. A superseded hit adds a fourth line,
+// "superseded by <uri>", naming its replacement.
 func writeCitations(out io.Writer, results []model.Result) {
 	if len(results) == 0 {
 		_, _ = fmt.Fprintln(out, "no results")
@@ -152,10 +153,26 @@ func writeCitations(out io.Writer, results []model.Result) {
 		_, _ = fmt.Fprintf(out, "%d. %s\n", i+1, citation(r))
 		_, _ = fmt.Fprintf(out, "   lines %d-%d\n", r.StartLine, r.EndLine)
 		_, _ = fmt.Fprintf(out, "   score %.1f\n", r.Score)
+		writeSupersededBy(out, r)
 		if i < len(results)-1 {
 			_, _ = fmt.Fprintln(out)
 		}
 	}
+}
+
+// writeSupersededBy appends the replacement line for a superseded hit
+// (ADR-0010), flagging a replacement absent from the index. A current hit
+// writes nothing.
+func writeSupersededBy(out io.Writer, r model.Result) {
+	if r.SupersededBy == "" {
+		return
+	}
+	if r.SupersededByResolved {
+		_, _ = fmt.Fprintf(out, "   superseded by %s\n", r.SupersededBy)
+
+		return
+	}
+	_, _ = fmt.Fprintf(out, "   superseded by %s (not in the index)\n", r.SupersededBy)
 }
 
 // citation builds the "uri#Heading" line: the document uri plus the last

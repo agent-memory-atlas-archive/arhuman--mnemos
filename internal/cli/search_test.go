@@ -3,6 +3,7 @@ package cli_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -42,6 +43,27 @@ func TestSearchCommand(t *testing.T) {
 		out := runCmd(t, "search", "SCIM", "--collection", "no-such")
 		require.Contains(t, out, "no results")
 	})
+}
+
+// TestSearchSupersededShowsReplacement asserts the text renderer names what
+// replaced a superseded hit, and marks a replacement missing from the index.
+func TestSearchSupersededShowsReplacement(t *testing.T) {
+	chdir(t, t.TempDir())
+	runCmd(t, "init")
+
+	seedKB(t, filepath.Join("adr", "current.md"),
+		"# Current\n\nThe quorum policy is three replicas.\n")
+	seedKB(t, filepath.Join("adr", "old.md"),
+		"---\nsuperseded_by: adr/current.md\n---\n\n# Old\n\nThe quorum policy was five replicas.\n")
+	seedKB(t, filepath.Join("adr", "dangling.md"),
+		"---\nsuperseded_by: adr/never-ingested.md\n---\n\n# Dangling\n\nA quorum policy draft.\n")
+
+	runCmd(t, "ingest", ".", "--collection", "adr")
+
+	out := runCmd(t, "search", "quorum", "policy")
+	require.Contains(t, out, "   superseded by adr/current.md\n")
+	require.Contains(t, out, "   superseded by adr/never-ingested.md (not in the index)\n")
+	require.Equal(t, 2, strings.Count(out, "superseded by"), "a current document carries no marker")
 }
 
 // TestEvalCommand runs the eval command against the eval package's testdata
