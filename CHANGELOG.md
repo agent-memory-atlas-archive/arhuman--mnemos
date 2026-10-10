@@ -28,6 +28,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - 2026-10-10: `mnemos search` prints `superseded by <uri>` under a superseded
   hit, with `(not in the index)` when the replacement is not indexed.
 
+### Changed
+- 2026-10-10: the Go toolchain is 1.27.2, which fixes 8 standard library
+  vulnerabilities reported by govulncheck; golangci-lint moves to v2.14.0.
+- 2026-10-09: `docs/remote-access.md` documents using mnemos on a remote host
+  over SSH, and the README documents connecting opencode.
+
+### Removed
+- 2026-09-30: the `mcp.transport` config key (`transport` under `[mcp]`). It
+  never changed anything: `mnemos serve` always served stdio. A `mnemos.toml`
+  that still sets it loads unchanged; the key is ignored.
+
 ## [0.3.0] - 2026-09-28
 
 The first release: an FTS5 MVP plus capture. The default binary is lexical,

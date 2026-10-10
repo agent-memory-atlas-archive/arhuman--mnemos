@@ -86,6 +86,17 @@ allow_write = true
 	require.Equal(t, 700, cfg.Chunking.TargetTokens)
 }
 
+// TestLoadIgnoresLegacyTransport pins that a config written before
+// [mcp].transport was retired still loads: the key is ignored, not rejected.
+func TestLoadIgnoresLegacyTransport(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "mnemos.toml", "[mcp]\ntransport = \"stdio\"\nallow_write = true\n")
+
+	cfg, err := config.Load(path, exists)
+	require.NoError(t, err)
+	require.True(t, cfg.MCP.AllowWrite)
+}
+
 func TestLoadMissingFileFallsBackToDefaults(t *testing.T) {
 	cfg, err := config.Load("/does/not/exist.toml", missing)
 	require.NoError(t, err)
