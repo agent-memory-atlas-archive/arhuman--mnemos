@@ -51,7 +51,7 @@ Two existing mechanisms look like they might already solve it, and neither does:
 **Session exchanges are captured into a journal tier that is excluded from
 search by default, and reaches the knowledge base only by promotion.**
 
-Four parts:
+Six parts:
 
 ### 1. The journal is OKF on disk, under the kb root
 
@@ -94,14 +94,56 @@ the entire reason to keep it.
 ### 4. Promotion is the only path into the kb, and it is a write
 
 Journal content becomes citable only when CONSOLIDATE promotes it into a real
-kb document. Promotion writes a new document and stamps the source entry as
-promoted, so a second pass does not re-promote the same material.
+kb document. Promotion is two calls, in this order:
+
+1. `mnemos.remember` writes or enriches the kb document that now holds the
+   content.
+2. `mnemos.journal_promote(entry_uri, promoted_to)` (CLI: `mnemos journal
+   promote <entry-uri> <target>`) stamps the entry's `promoted_to` frontmatter
+   key with that document's uri, or with `none` when the entry was reviewed and
+   held nothing worth keeping. It never writes the kb document itself, and it
+   refuses a target that is not an indexed, visible, non-journal document.
+
+`promoted_to` is the review state. An entry without it is pending
+(`mnemos.journal_pending`, `mnemos journal pending`); an entry carrying it is
+not re-read on the next pass. An entry is stamped once: a second stamp is
+refused (`ErrAlreadyPromoted`) rather than rewriting the record of where the
+content went.
+
+The two calls are not atomic. A crash between them leaves the kb document
+written and the entry still pending. The next pass reads the entry again, finds
+its content already in the kb, and stamps it (`none`, or the existing
+document); the window costs one repeated review, never a lost or duplicated
+fact, as long as consolidation deduplicates as it already must.
 
 Nothing promotes automatically. An LLM summarising a transcript into a decision
 is exactly the operation that invents a decision nobody made, and the resulting
 document would be indistinguishable from one the user wrote. Promotion is
 therefore a deliberate act under the existing `allow_write` gate, journaled like
 every other consolidation pass, with conflicts surfaced rather than merged.
+
+### 5. Pruning is explicit, and only of reviewed entries
+
+`mnemos journal prune --older-than <duration>` is the only way an entry leaves
+the journal. It is a dry run by default, listing the candidates; `--apply`
+deletes them and requires `allow_delete`. Nothing runs it on a timer.
+
+An entry is eligible only when it carries `promoted_to` (a kb uri or `none`)
+and its age (now minus `captured_at`, else its file `modified_at`) is strictly
+greater than the duration. An unreviewed entry is never pruned, whatever its
+age; an entry with no parseable date is kept. Deletion goes through
+`mnemos.forget` semantics (index first, then disk). A dated directory left
+holding only its `log.md` is removed with it; one holding anything else, an
+`index.md` included, is kept.
+
+### 6. The entry is owned by the memory service
+
+The Stop hook only parses the transcript; the memory service owns the entry
+contract (path `journal/<date>/<session8>-<HHMMSS>.md`, frontmatter, collection,
+`captured_at`). Because the path is a pure function of the session and the
+prompt instant, a second Stop for the same turn updates the entry instead of
+adding one. That update never drops review state: an entry already carrying
+`promoted_to` is left untouched.
 
 ## Consequences
 
@@ -112,8 +154,9 @@ mitigations; neither makes the split invisible.
 
 **The journal grows without bound.** Rank decay (ADR-0010's sibling, this
 plan's P1) does not apply, because excluded entries are not ranked at all.
-Nothing in this decision deletes anything: pruning is an explicit,
-human-initiated command, deferred to its own phase. A memory that deletes
+Nothing deletes automatically: pruning is the explicit, human-initiated
+`mnemos journal prune` of §5, and it never touches an unreviewed entry, so the
+growth that remains is the backlog nobody has consolidated yet. A memory that deletes
 itself on a timer is not compatible with the trust model ADR-0008 established,
 and a journal directory that grows is a disk-space problem, which is the
 cheaper of the two failures.
@@ -165,5 +208,5 @@ once it lands in the kb.
   stale documents, contrasted above with exclusion for a majority tier.
 - `internal/memory/service.go`, `read.go`, `list.go`: the `visibility.deny`
   application points this decision deliberately does not reuse.
-- Plan phases P4 (storage), P6 (search exclusion), P7 (capture), P8
-  (promotion), P9 (pruning) implement this.
+- Plan phases P4 (storage), P6 (search exclusion), P7 (capture), P8 and P15
+  (promotion), P9 (pruning), P19 (entry ownership) implement this.
