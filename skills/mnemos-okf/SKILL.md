@@ -59,9 +59,10 @@ rather than guessing.
 - **Report the pass.** Modes that scan or mutate the tree (RESTORE,
   CONSOLIDATE) end with a short standardized report — `Created / Updated /
   Already present / Warnings` — omitting empty sections.
-- **Write gates.** `mnemos.remember`/`mnemos.okfy` require `[mcp] allow_write
-  = true`; `mnemos.move`/`mnemos.forget` require `allow_delete = true`. Read
-  defaults to safe. Don't assume access; check, then act or advise enabling it.
+- **Write gates.** `mnemos.remember`/`mnemos.okfy`/`mnemos.journal_promote`
+  require `[mcp] allow_write = true`; `mnemos.move`/`mnemos.forget` require
+  `allow_delete = true`. Read defaults to safe. Don't assume access; check, then
+  act or advise enabling it.
 
 ## 1. RECALL — search before answering
 
@@ -202,7 +203,8 @@ The shape of a pass (full procedure in
 [references/consolidation.md](references/consolidation.md) — read it before
 running one):
 
-1. Scope: `mnemos.list` the capture directory.
+1. Scope: `mnemos.list` the capture directory, and `mnemos.journal_pending`
+   for session journal entries not yet reviewed.
 2. Triage each capture into one of five buckets: already-known / new canonical
    knowledge / task / decision / transient noise.
 3. Deduplicate into a single canonical document per topic, preserving the
@@ -215,6 +217,12 @@ running one):
 `mnemos.move`/`mnemos.forget` need `allow_delete = true`; without it, still
 produce canonical documents but mark processed captures `status: pending-prune`
 instead of removing them.
+
+Journal entries (written by the Stop hook) are excluded from search and become
+citable only by promotion. Promote only what an entry states explicitly, never a
+decision inferred from it; after writing the kb document, record the outcome with
+`mnemos.journal_promote` (`none` when nothing was worth keeping). Never move,
+forget or edit a journal entry during a pass.
 
 ## Notes
 

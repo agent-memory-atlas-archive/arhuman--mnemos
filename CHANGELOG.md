@@ -17,6 +17,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `[mcp].allow_write`) stamp `promoted_to` on an entry once its content lives in a
   kb document, or `none` when nothing was worth keeping; an entry is never stamped
   twice.
+- 2026-10-10: the `mnemos-okf` skill's CONSOLIDATE mode reviews pending journal
+  entries: it promotes only what an entry states explicitly into kb documents,
+  then records each outcome with `mnemos.journal_promote`.
 
 ## [0.3.0] - 2026-09-28
 

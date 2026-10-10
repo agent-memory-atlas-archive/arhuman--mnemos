@@ -9,8 +9,13 @@ trail, every removal is journaled, contradictions are surfaced, not settled.
 
 - `mnemos.list(path: <capture_dir>)` — the inbox of raw captures. Add
   `unindexed_only` to catch files the watcher missed.
-- If the inbox is empty, report `Already present: inbox clean` and stop.
-- Announce the plan first: "N captures to process". Process oldest first.
+- `mnemos.journal_pending` lists session journal entries not yet reviewed,
+  oldest first (see §7). Use it rather than `mnemos.list(path: journal)`:
+  pending is a property of the entry, not of its path.
+- If the inbox is empty and no journal entry is pending, report
+  `Already present: inbox clean` and stop.
+- Announce the plan first: "N captures, M journal entries to process". Process
+  oldest first.
 
 ## 1. Triage — five buckets
 
@@ -78,11 +83,45 @@ across the tree (excluding the capture dir). Route to exactly one bucket:
 
 ## 6. Close the pass
 
-1. **Journal** — one dated entry, written once, never edited:
+1. **Journal**: one dated entry, written once, never edited:
    `journal/<YYYY-MM-DD>-consolidation.md` (`type: document`,
-   `tags: [journal, consolidation]`) listing captures processed, docs
-   created/updated, prunes with reasons, conflicts opened.
+   `tags: [journal, consolidation]`) listing captures processed, journal
+   entries reviewed with their `promoted_to`, docs created/updated, prunes with
+   reasons, conflicts opened.
 2. **Report** to the user: `Created / Updated / Already present / Warnings`
    (omit empty sections; `Warnings` carries conflicts and dangling links).
 3. **Commit**: in a jj repo, `jj new -m "chore: consolidate memory <date>"`
    — the VCS diff is the audit trail of the whole pass.
+
+## 7. Journal entries
+
+The session journal (entries of `type: journal` under `journal/<date>/`,
+written by the Stop hook) is a second source for a pass. Entries are excluded
+from search and become citable only through promotion (ADR-0011). Promotion and
+stamping both need `allow_write = true`; without it, report the pending count
+and the candidates, and write nothing.
+
+1. **Read.** `mnemos.journal_pending`, then `mnemos.read(uri)` per entry. An
+   entry holds `Request` (the user's words), `Files touched`, and `Outcome` (the
+   assistant's final text, verbatim).
+2. **Weigh the source.** `Request` is what the user said. `Outcome` is an
+   agent's claim, not a confirmed fact. Promote only what the entry states
+   explicitly: a decision the user made or confirmed, a constraint the user
+   stated, a durable fact the touched files back up. Never infer a decision the
+   entry does not state, and never promote the assistant's speculation. When
+   unsure, do not promote.
+3. **Triage** with the five buckets of §1. Most entries are transient noise.
+4. **Promote** by writing or enriching the canonical document with
+   `mnemos.remember` (§2), adding the entry uri to its `Sources` line.
+   Contradictions follow §3: a `Conflicts` section and a review task, never an
+   overwrite.
+5. **Stamp**, only once the kb document is written and indexed:
+   `mnemos.journal_promote(entry_uri, promoted_to: <kb document uri>)`. For noise
+   or already-known content, `promoted_to: none`, so the entry is not re-read on
+   the next pass. One stamp per entry: when an entry fed several documents, stamp
+   the main one and cite the entry in every document's `Sources`. A stamped entry
+   is refused by the tool; never try to re-stamp it.
+6. **Leave entries in place.** Never move, forget or edit a journal entry during
+   a pass. Pruning the journal is a separate, explicit command.
+
+Add a `Journal: N reviewed, M promoted` line to the pass report.
