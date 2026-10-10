@@ -347,11 +347,13 @@ commands). Note the spelling: `mnemos.search` is the **MCP tool** Claude calls;
 - **`mnemos.context`**: top-k results as LLM-ready context blocks (`uri:start-end` → content). Pass `follow_links: true` to attach each block document's 1-hop link neighbors.
 - **`mnemos.related`**: the link-graph neighbors of a document, its outbound links and inbound backlinks (1 hop, document-level). Dangling outbound targets are returned with `resolved: false`. Filter with `direction` (outbound/inbound/both) and `limit`.
 - **`mnemos.list`**: walk the OKF tree on disk and annotate each file with index metadata (title, type, tags, collection) plus an `indexed` flag, so both stored and not-yet-indexed files are visible. Filter by `path`, `collection`, `type`, or indexed state.
+- **`mnemos.journal_pending`**: list session journal entries not yet reviewed, oldest first. Journal entries are excluded from search; this is how CONSOLIDATE finds them.
 
 ### Write (requires `allow_write = true`)
 
 - **`mnemos.remember`**: write a note into memory. Pass an optional `path` (e.g. `"adr/0003-rule-engine.md"`) to place it at an explicit location in the OKF tree instead of auto-naming under `kb/capture/`. Content is **secret-scanned** before it is written and indexed.
 - **`mnemos.okfy`**: convert an existing `.txt`/`.md` file in the tree into an OKF document (frontmatter + body) at `out` (defaults to the source path with a `.md` extension) and index it, leaving the source intact. The source body is **secret-scanned** first.
+- **`mnemos.journal_promote`**: record that a journal entry was reviewed by stamping its `promoted_to` with the kb document now holding its content (written first with `mnemos.remember`), or `none`. It never writes the kb document itself, and an entry already stamped is refused.
 
 `mnemos edit <uri>` is the human counterpart: a terminal editor for one document, gated by the same `allow_write` flag, with no MCP tool of its own. See [Edit documents interactively](#edit-documents-interactively).
 

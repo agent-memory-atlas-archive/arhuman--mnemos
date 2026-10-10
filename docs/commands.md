@@ -54,6 +54,17 @@ fallback for files that don't declare one.
 | `mnemos forget <path>` | Delete a file from the OKF tree, on disk and in the index; idempotent |
 | `mnemos mv <src> <dst>` | Move a file or directory within the OKF tree, renaming on disk and re-indexing under the new path |
 
+## Session journal
+
+Journal entries (written by `mnemos hook stop`) are excluded from search and reach
+the kb only by promotion ([ADR-0011](adr/0011-journal-tier.md)). These commands
+drive that review; `promote` writes and requires `[mcp] allow_write = true`.
+
+| Command | Purpose |
+|---|---|
+| `mnemos journal pending [--limit N] [--json]` | List journal entries not yet reviewed (no `promoted_to`), oldest first |
+| `mnemos journal promote <entry-uri> <target>` | Stamp `promoted_to` on a journal entry: the uri of the kb document now holding its content (write it first), or `none` when nothing was worth keeping. An entry already stamped is refused |
+
 ## Maintenance and diagnosis
 
 | Command | Purpose |
@@ -71,7 +82,7 @@ fallback for files that don't declare one.
 
 | Command | Purpose |
 |---|---|
-| `mnemos serve` | Run the MCP server (stdio), exposing the search, read, context, related, list, remember, okfy, forget, and move tools |
+| `mnemos serve` | Run the MCP server (stdio), exposing the search, read, context, related, list, journal_pending, remember, okfy, journal_promote, forget, and move tools |
 | `mnemos hook session-start [--max-tokens N]` | Claude Code `SessionStart` hook: inject the scoped working set (default cap 1500 tokens) |
 | `mnemos hook recall [--limit N] [--max-tokens N]` | Claude Code `UserPromptSubmit` hook: inject cited recall (defaults: 3 results, 600 tokens) |
 | `mnemos hook stop` | Claude Code `Stop` hook: write one journal entry for the turn that just ended (request, files touched, final assistant text) under `journal/<date>/`. Requires `[mcp] allow_write = true` |
