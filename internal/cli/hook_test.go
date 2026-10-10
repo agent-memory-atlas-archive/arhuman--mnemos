@@ -376,3 +376,23 @@ func TestHookStopSilentNoOps(t *testing.T) {
 		require.NoDirExists(t, ".mnemos")
 	})
 }
+
+// TestHookStopKeepsPromotedEntry reproduces P19: a second Stop on the same last
+// prompt must not rewrite a promoted entry back into the pending list.
+func TestHookStopKeepsPromotedEntry(t *testing.T) {
+	stopWorkspace(t)
+	transcript := writeTranscript(t,
+		userLine("2026-10-10T05:31:42Z", "do the thing"),
+		assistantLine(false, textBlock("did the thing")),
+	)
+	const entry = "journal/2026-10-10/abcdef12-053142.md"
+
+	runHook(t, stopPayload(t, transcript, false), "hook", "stop")
+	runCmd(t, "journal", "promote", entry, "none")
+	runHook(t, stopPayload(t, transcript, false), "hook", "stop")
+
+	raw, err := os.ReadFile(kbPath(entry))
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "promoted_to: none")
+	require.Equal(t, "no pending journal entries\n", runCmd(t, "journal", "pending"))
+}
