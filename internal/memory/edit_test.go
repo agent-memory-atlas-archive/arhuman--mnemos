@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -250,4 +251,20 @@ func TestSimilarIsEmptyWithoutEmbeddings(t *testing.T) {
 	got, err := f.svc.Similar(context.Background(), uri, 5)
 	require.NoError(t, err)
 	require.Empty(t, got)
+}
+
+// TestEditFrontmatterInsertAddsAbsentKey proves an Insert edit adds a key the
+// frontmatter does not define as its last line, leaving every other byte alone.
+func TestEditFrontmatterInsertAddsAbsentKey(t *testing.T) {
+	f := newFixture(t, true, false)
+	uri := f.seed(t, "tasks/ship.md", editableTask, "proj")
+
+	_, err := f.svc.EditFrontmatter(context.Background(), memory.EditFrontmatterInput{
+		URI:    uri,
+		Fields: []memory.FieldEdit{{Key: "owner", Value: "a: b", Insert: true}},
+	})
+	require.NoError(t, err)
+
+	want := strings.Replace(editableTask, "tags: [auth, bug]\n---\n", "tags: [auth, bug]\nowner: 'a: b'\n---\n", 1)
+	require.Equal(t, want, readTree(t, f.treeRoot, uri))
 }

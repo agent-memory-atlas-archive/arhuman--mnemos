@@ -124,6 +124,42 @@ func (d Doc) PatchScalar(key, value string) ([]byte, error) {
 	return d.applySpan(node, start, end, rendered)
 }
 
+// SetScalar returns the document with key set to the scalar value. A key the
+// frontmatter already defines is patched exactly as PatchScalar does, including
+// its refusal of a non-scalar or multi-line value. An absent key is added as a
+// single "key: value" line at the end of the frontmatter block, just before the
+// closing delimiter, with key and value quoted where YAML requires it. Every
+// other key, comment and blank line and the body are kept byte for byte. The
+// result is re-parsed and must read key back as value, or SetScalar errors and
+// returns no bytes.
+func (d Doc) SetScalar(key, value string) ([]byte, error) {
+	if _, err := d.find(key); err == nil {
+		return d.PatchScalar(key, value)
+	}
+
+	renderedKey, err := renderScalar(0, key)
+	if err != nil {
+		return nil, err
+	}
+	renderedValue, err := renderScalar(0, value)
+	if err != nil {
+		return nil, err
+	}
+	// Parse only accepts a closing delimiter on its own line, so inner ends in a
+	// newline; Clip makes the append copy rather than write into the source.
+	out := d.assemble(append(slices.Clip(d.inner), renderedKey+": "+renderedValue+"\n"...), d.body)
+
+	check, ok, err := Parse(out)
+	if err != nil || !ok {
+		return nil, fmt.Errorf("okfyaml: inserting %q does not re-parse", key)
+	}
+	if node, ferr := check.find(key); ferr != nil || node.Kind != yaml.ScalarNode || node.Value != value {
+		return nil, fmt.Errorf("okfyaml: inserted %q does not read back as its value", key)
+	}
+
+	return out, nil
+}
+
 // PatchTags returns the document with key's sequence replaced by items. v1
 // retypes the whole list rather than editing individual entries. A key whose
 // current value is null is rewritten as a flow sequence; an empty items on a

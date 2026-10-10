@@ -1,19 +1,12 @@
 package memory
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
-	"github.com/arhuman/mnemos/internal/chunk"
-	"github.com/arhuman/mnemos/internal/ingest"
 	"github.com/arhuman/mnemos/internal/model"
-	"github.com/arhuman/mnemos/internal/okfyaml"
 	"github.com/arhuman/mnemos/internal/storage"
 )
 
@@ -130,9 +123,13 @@ func (s *Service) PromoteJournal(ctx context.Context, in PromoteJournalInput) (P
 		return PromoteJournalResult{}, err
 	}
 
-	if err := s.stampPromotedTo(ctx, entry.URI, target); err != nil {
+	if _, err := s.EditFrontmatter(ctx, EditFrontmatterInput{
+		URI:    entry.URI,
+		Fields: []FieldEdit{{Key: storage.PromotedToKey, Value: target, Insert: true}},
+	}); err != nil {
 		return PromoteJournalResult{EntryURI: entry.URI}, err
 	}
+	s.logger.Info("journal entry promoted", "uri", entry.URI, "promoted_to", target)
 
 	return PromoteJournalResult{EntryURI: entry.URI, PromotedTo: target}, nil
 }
@@ -172,85 +169,4 @@ func (s *Service) checkPromoteTarget(ctx context.Context, target string) error {
 	}
 
 	return nil
-}
-
-// stampPromotedTo writes promoted_to into the entry's frontmatter and reindexes
-// it. It owns its write path rather than calling EditFrontmatter because
-// okfyaml.PatchScalar only rewrites an existing key, and a captured entry has
-// no promoted_to until its first promotion.
-func (s *Service) stampPromotedTo(ctx context.Context, uri, target string) error {
-	abs, resolved, err := s.resolveWritable(ctx, uri)
-	if err != nil {
-		return fmt.Errorf("edit path: %w", err)
-	}
-	current, err := os.ReadFile(abs) //nolint:gosec // abs is confined to the tree by ResolveWithin
-	if err != nil {
-		return fmt.Errorf("edit read %q: %w", resolved, err)
-	}
-
-	content, err := setScalar(current, storage.PromotedToKey, target)
-	if err != nil {
-		return err
-	}
-
-	if _, err = ingest.WriteFileAtomic(abs, content); err != nil {
-		return fmt.Errorf("edit write %q: %w", resolved, err)
-	}
-	if _, _, err = ingest.ReindexOne(ctx, s.db, s.logger, abs, resolved, s.collectionFor(ctx, resolved),
-		chunk.ConfigFrom(s.cfg.Chunking.TargetTokens, s.cfg.Chunking.OverlapTokens)); err != nil {
-		return fmt.Errorf("%w: %w", ErrReindexAfterWrite, err)
-	}
-
-	s.logger.Info("journal entry promoted", "uri", resolved, "promoted_to", target)
-
-	return nil
-}
-
-// setScalar sets key to value in content's frontmatter: patched in place when
-// the key exists, otherwise appended as the block's last line. The result is
-// re-parsed and must read the value back, so a misplaced insert is refused
-// rather than written.
-func setScalar(content []byte, key, value string) ([]byte, error) {
-	doc, ok, err := okfyaml.Parse(content)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrNotEditable, err)
-	}
-	if !ok {
-		return nil, ErrNotEditable
-	}
-
-	var out []byte
-	if _, present := field(doc, key); present {
-		if out, err = doc.PatchScalar(key, value); err != nil {
-			return nil, fmt.Errorf("edit field %q: %w", key, err)
-		}
-	} else {
-		line, merr := yaml.Marshal(map[string]string{key: value})
-		if merr != nil {
-			return nil, fmt.Errorf("edit field %q: %w", key, merr)
-		}
-		// Parse accepted the canonical form, so the block ends in its closing
-		// "---" line and everything before it ends in a newline.
-		block := content[:len(content)-len(doc.Body())]
-		at := bytes.LastIndex(block, []byte("---"))
-		out = append(append(append([]byte{}, block[:at]...), line...), content[at:]...)
-	}
-
-	check, ok, err := okfyaml.Parse(out)
-	if got, _ := field(check, key); err != nil || !ok || got != value {
-		return nil, fmt.Errorf("%w: could not set %q", ErrNotEditable, key)
-	}
-
-	return out, nil
-}
-
-// field returns key's displayed value and whether the frontmatter defines it.
-func field(doc okfyaml.Doc, key string) (string, bool) {
-	for _, f := range doc.Fields() {
-		if f.Key == key {
-			return f.Value, true
-		}
-	}
-
-	return "", false
 }

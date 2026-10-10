@@ -122,6 +122,93 @@ func TestPatchScalarRejects(t *testing.T) {
 	require.ErrorContains(t, err, "not editable")
 }
 
+// TestSetScalarInsertsAbsentKey proves an absent key lands as the last line of
+// the frontmatter block and every other byte, comments and blank line
+// included, is untouched.
+func TestSetScalarInsertsAbsentKey(t *testing.T) {
+	out, err := parseFixture(t, taskFixture).SetScalar("promoted_to", "kb/auth.md")
+	require.NoError(t, err)
+
+	want := strings.Replace(taskFixture, "  - code/auth.go\n---\n", "  - code/auth.go\npromoted_to: kb/auth.md\n---\n", 1)
+	require.Equal(t, want, string(out))
+}
+
+// TestSetScalarPatchesPresentKey proves a present key is patched exactly as
+// PatchScalar patches it, a null value included.
+func TestSetScalarPatchesPresentKey(t *testing.T) {
+	for _, key := range []string{"status", "completed"} {
+		t.Run(key, func(t *testing.T) {
+			doc := parseFixture(t, taskFixture)
+			want, err := doc.PatchScalar(key, "done")
+			require.NoError(t, err)
+
+			got, err := doc.SetScalar(key, "done")
+			require.NoError(t, err)
+			require.Equal(t, string(want), string(got))
+		})
+	}
+}
+
+// TestSetScalarInsertShapes covers inserted values that need quoting and the
+// delimiter shapes Parse accepts.
+func TestSetScalarInsertShapes(t *testing.T) {
+	cases := []struct {
+		name  string
+		src   string
+		value string
+		want  string
+	}{
+		{
+			name:  "colon space is quoted",
+			src:   "---\ntitle: t\n---\nbody\n",
+			value: "a: b",
+			want:  "---\ntitle: t\nnote: 'a: b'\n---\nbody\n",
+		},
+		{
+			name:  "hash is quoted",
+			src:   "---\ntitle: t\n---\nbody\n",
+			value: "x #y",
+			want:  "---\ntitle: t\nnote: 'x #y'\n---\nbody\n",
+		},
+		{
+			name:  "trailing comment line stays above the insert",
+			src:   "---\ntitle: t   # inline\n# trailing note\n---\nbody\n",
+			value: "v",
+			want:  "---\ntitle: t   # inline\n# trailing note\nnote: v\n---\nbody\n",
+		},
+		{
+			name:  "closing delimiter without a trailing newline",
+			src:   "---\ntitle: t\n---",
+			value: "v",
+			want:  "---\ntitle: t\nnote: v\n---",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := parseFixture(t, tc.src).SetScalar("note", tc.value)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, string(out))
+
+			fields := parseFixture(t, string(out)).Fields()
+			require.Equal(t, okfyaml.Field{Key: "note", Value: tc.value}, fields[len(fields)-1])
+		})
+	}
+}
+
+// TestSetScalarRejects covers the refusals inherited from PatchScalar on a
+// present key and a value that cannot be written on one line.
+func TestSetScalarRejects(t *testing.T) {
+	doc := parseFixture(t, taskFixture)
+
+	_, err := doc.SetScalar("refs", "x")
+	require.ErrorContains(t, err, "not a scalar")
+
+	out, err := doc.SetScalar("note", "line one\nline two")
+	require.ErrorContains(t, err, "single-line")
+	require.Nil(t, out)
+}
+
 // TestPatchTagsReplacesWholeList proves both list shapes are retyped in place
 // without disturbing the key line or the rest of the document.
 func TestPatchTagsReplacesWholeList(t *testing.T) {

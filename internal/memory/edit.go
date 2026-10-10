@@ -23,12 +23,16 @@ var ErrReindexAfterWrite = errors.New("edit: write ok, reindex failed")
 var ErrNotEditable = errors.New("edit: frontmatter is not editable in place")
 
 // FieldEdit is one frontmatter key to rewrite. Items applies when List is set
-// (the whole list is retyped); otherwise Value replaces the scalar.
+// (the whole list is retyped); otherwise Value replaces the scalar. A key the
+// frontmatter does not define is refused unless Insert is set on a scalar edit,
+// in which case it is added as the last frontmatter line (okfyaml.SetScalar).
+// Insert has no effect on a List edit.
 type FieldEdit struct {
-	Key   string
-	Value string
-	Items []string
-	List  bool
+	Key    string
+	Value  string
+	Items  []string
+	List   bool
+	Insert bool
 }
 
 // EditFrontmatterInput is a single atomic edit of the document at URI: any
@@ -216,9 +220,12 @@ func applyEdits(content []byte, in EditFrontmatterInput) ([]byte, error) {
 		if !ok {
 			return nil, ErrNotEditable
 		}
-		if f.List {
+		switch {
+		case f.List:
 			content, err = doc.PatchTags(f.Key, f.Items)
-		} else {
+		case f.Insert:
+			content, err = doc.SetScalar(f.Key, f.Value)
+		default:
 			content, err = doc.PatchScalar(f.Key, f.Value)
 		}
 		if err != nil {
