@@ -1,6 +1,7 @@
 // Package mcp exposes the mnemos retrieval surface over the Model Context
 // Protocol. It builds an official-SDK server, registers the read-only search /
-// read / context tools, and runs them over a transport (stdio in serve, an
+// read / context / list / related / journal_pending tools (plus the gated write
+// and delete tools), and runs them over a transport (stdio in serve, an
 // in-memory pair in tests). All tools reuse the Phase 1 search engine and
 // storage; this package adds no retrieval logic of its own.
 package mcp
@@ -66,7 +67,8 @@ type Server struct {
 // [search].default_limit is applied when a tool omits limit); treeRoot the OKF
 // tree root paths are confined within; scanner the secret screen for captured
 // text; and logger writes diagnostics to stderr (never stdout, the MCP
-// transport). The write tools mnemos.remember/okfy are registered only when
+// transport). The read-only mnemos.journal_pending is always registered. The
+// write tools mnemos.remember/okfy/journal_promote are registered only when
 // cfg.MCP.AllowWrite is true, and mnemos.forget/move only when
 // cfg.MCP.AllowDelete is true (least capability: a disabled tool is never
 // advertised in tools/list).
@@ -92,9 +94,11 @@ func NewServer(db *sql.DB, retriever search.Retriever, cfg *config.Config, treeR
 	srv.registerContext()
 	srv.registerList()
 	srv.registerRelated()
+	srv.registerJournalPending()
 	if cfg.MCP.AllowWrite {
 		srv.registerRemember()
 		srv.registerOkfy()
+		srv.registerJournalPromote()
 	}
 	if cfg.MCP.AllowDelete {
 		srv.registerForget()

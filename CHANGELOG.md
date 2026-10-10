@@ -11,6 +11,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   condensed journal entry per turn (request, files touched, final assistant text)
   under `kb/journal/<date>/`. Gated by `[mcp].allow_write`, secret-scanned, and
   silent on every failure. The bundled hook settings wire it.
+- 2026-10-10: journal review surface. `mnemos journal pending` and the
+  `mnemos.journal_pending` tool list journal entries not yet reviewed, oldest
+  first. `mnemos journal promote` and `mnemos.journal_promote` (under
+  `[mcp].allow_write`) stamp `promoted_to` on an entry once its content lives in a
+  kb document, or `none` when nothing was worth keeping; an entry is never stamped
+  twice.
 
 ## [0.3.0] - 2026-09-28
 

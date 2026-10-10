@@ -164,3 +164,110 @@ func TestUpsertClearsJournalOnReingest(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, isJournal, "re-ingest must refresh the flag, not leave it stale")
 }
+
+// TestListJournalPendingExcludesPromotedAndKB is the consolidation queue's
+// contract: an entry stamped with promoted_to (a uri or "none") has been handled
+// and leaves the queue, and a kb document never enters it.
+func TestListJournalPendingExcludesPromotedAndKB(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+
+	putDoc(t, db, model.Document{ID: "j1", URI: "journal/open.md", Collection: "journal", Journal: true,
+		FrontmatterJSON: `{"type":"journal","captured_at":"2026-09-01T00:00:00Z"}`})
+	putDoc(t, db, model.Document{ID: "j2", URI: "journal/promoted.md", Collection: "journal", Journal: true,
+		FrontmatterJSON: `{"type":"journal","promoted_to":"adr/0001.md"}`})
+	putDoc(t, db, model.Document{ID: "j3", URI: "journal/reviewed.md", Collection: "journal", Journal: true,
+		FrontmatterJSON: `{"type":"journal","promoted_to":"none"}`})
+	putDoc(t, db, model.Document{ID: "j4", URI: "journal/null.md", Collection: "journal", Journal: true,
+		FrontmatterJSON: `{"type":"journal","promoted_to":null}`})
+	putDoc(t, db, model.Document{ID: "j5", URI: "journal/blank.md", Collection: "journal", Journal: true,
+		FrontmatterJSON: `{"type":"journal","promoted_to":"  "}`})
+	putDoc(t, db, model.Document{ID: "k1", URI: "adr/0001.md", Collection: "adr",
+		FrontmatterJSON: `{"type":"decision"}`})
+
+	got, err := storage.ListPendingJournal(ctx, db, 0)
+	require.NoError(t, err)
+
+	uris := make([]string, 0, len(got))
+	for _, d := range got {
+		require.True(t, d.Journal)
+		uris = append(uris, d.URI)
+	}
+	require.ElementsMatch(t, []string{"journal/open.md", "journal/null.md", "journal/blank.md"}, uris)
+}
+
+// TestListJournalPendingTreatsMissingFrontmatterAsPending covers rows with
+// empty or invalid frontmatter JSON: nothing says they were handled, and the
+// query must not fail on them (json_extract raises on invalid JSON).
+func TestListJournalPendingTreatsMissingFrontmatterAsPending(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+
+	putDoc(t, db, model.Document{ID: "j1", URI: "journal/empty.md", Collection: "journal", Journal: true})
+	putDoc(t, db, model.Document{ID: "j2", URI: "journal/broken.md", Collection: "journal", Journal: true,
+		FrontmatterJSON: `{not json`})
+
+	got, err := storage.ListPendingJournal(ctx, db, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+}
+
+// TestListJournalPendingOldestFirstWithLimit pins the order consolidation works
+// through (oldest first, the reverse of ListJournal) and the cap, including
+// that a non-positive limit means "all".
+func TestListJournalPendingOldestFirstWithLimit(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+
+	putDoc(t, db, model.Document{ID: "j1", URI: "journal/a.md", Collection: "journal", Journal: true, ModifiedAt: "2026-09-03T00:00:00Z"})
+	putDoc(t, db, model.Document{ID: "j2", URI: "journal/b.md", Collection: "journal", Journal: true, ModifiedAt: "2026-09-01T00:00:00Z"})
+	putDoc(t, db, model.Document{ID: "j3", URI: "journal/c.md", Collection: "journal", Journal: true, ModifiedAt: "2026-09-02T00:00:00Z"})
+
+	got, err := storage.ListPendingJournal(ctx, db, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	require.Equal(t, "journal/b.md", got[0].URI)
+	require.Equal(t, "journal/c.md", got[1].URI)
+	require.Equal(t, "journal/a.md", got[2].URI)
+
+	got, err = storage.ListPendingJournal(ctx, db, 2)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, "journal/b.md", got[0].URI)
+
+	got, err = storage.ListPendingJournal(ctx, db, -1)
+	require.NoError(t, err)
+	require.Len(t, got, 3, "a non-positive limit returns every pending entry")
+}
+
+// TestListJournalPendingEmptyIsNotAnError guards the first-run case.
+func TestListJournalPendingEmptyIsNotAnError(t *testing.T) {
+	got, err := storage.ListPendingJournal(context.Background(), openMigrated(t), 0)
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+// TestJournalPromotedToReadsFrontmatter pins the Go-side reader to the same
+// cases the SQL pending filter treats as unpromoted.
+func TestJournalPromotedToReadsFrontmatter(t *testing.T) {
+	cases := []struct {
+		name string
+		js   string
+		want string
+	}{
+		{"uri", `{"promoted_to":"adr/0001.md"}`, "adr/0001.md"},
+		{"none", `{"promoted_to":"none"}`, "none"},
+		{"absent", `{"type":"journal"}`, ""},
+		{"null", `{"promoted_to":null}`, ""},
+		{"blank", `{"promoted_to":"   "}`, ""},
+		{"empty frontmatter", ``, ""},
+		{"invalid frontmatter", `{nope`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, storage.JournalPromotedTo(model.Document{FrontmatterJSON: tc.js}))
+		})
+	}
+	require.Equal(t, "2026-09-01T00:00:00Z",
+		storage.JournalCapturedAt(model.Document{FrontmatterJSON: `{"captured_at":"2026-09-01T00:00:00Z"}`}))
+}
