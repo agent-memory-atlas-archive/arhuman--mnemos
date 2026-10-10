@@ -20,6 +20,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - 2026-10-10: the `mnemos-okf` skill's CONSOLIDATE mode reviews pending journal
   entries: it promotes only what an entry states explicitly into kb documents,
   then records each outcome with `mnemos.journal_promote`.
+- 2026-10-10: `mnemos journal prune --older-than 30d` lists reviewed journal
+  entries past the age (dry run); `--apply` deletes them and requires
+  `[mcp].allow_delete`. Entries without `promoted_to` are never pruned. A dated
+  directory left holding only its `log.md` is removed with it; an `index.md` is
+  never touched.
 - 2026-10-10: `mnemos search` prints `superseded by <uri>` under a superseded
   hit, with `(not in the index)` when the replacement is not indexed.
 

@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/arhuman/mnemos/internal/model"
 	"github.com/arhuman/mnemos/internal/storage"
@@ -169,4 +173,157 @@ func (s *Service) checkPromoteTarget(ctx context.Context, target string) error {
 	}
 
 	return nil
+}
+
+// PruneJournalInput selects which reviewed journal entries to delete. OlderThan
+// must be positive; Apply false is a dry run; a zero Now means time.Now().
+type PruneJournalInput struct {
+	OlderThan time.Duration
+	Apply     bool
+	Now       time.Time
+}
+
+// PruneJournalResult reports a prune. Pruned lists the entries removed (or, in
+// a dry run, the ones that would be); RemovedDirs lists the tree-relative
+// directories deleted because the prune left only reserved OKF files in them.
+type PruneJournalResult struct {
+	Pruned            []JournalEntry `json:"pruned"`
+	SkippedUnreviewed int            `json:"skipped_unreviewed"`
+	SkippedUndated    int            `json:"skipped_undated"`
+	RemovedDirs       []string       `json:"removed_dirs"`
+	Applied           bool           `json:"applied"`
+}
+
+// PruneJournal deletes reviewed journal entries older than in.OlderThan. It is
+// the explicit, human-initiated cleanup ADR-0011 allows: nothing calls it on a
+// timer.
+//
+// Candidates are found by the stored journal flag, never a path, so a moved
+// entry is still pruned; entries in a hidden collection are ignored. An entry's
+// age is now minus its captured_at, falling back to its modified_at; one with
+// neither parseable (RFC 3339) is kept and counted in SkippedUndated. Only an
+// entry stamped with promoted_to (a kb uri or PromoteNone) whose age is strictly
+// greater than OlderThan is eligible. An unreviewed entry is never pruned; one old
+// enough to qualify is counted in SkippedUnreviewed.
+//
+// A dry run (Apply false) only reads and is ungated. Apply requires
+// [mcp].allow_delete and refuses before any read when it is off. Each entry is
+// removed through Forget (index first, then disk); the first failure stops the
+// prune and is returned with what was removed so far. Then every directory that
+// held a removed entry and now holds nothing but reserved OKF files (log.md,
+// index.md) loses those files and is removed; a directory holding anything else
+// is left untouched. An OlderThan <= 0 is refused so a typo cannot empty the
+// tier.
+func (s *Service) PruneJournal(ctx context.Context, in PruneJournalInput) (PruneJournalResult, error) {
+	res := PruneJournalResult{Pruned: []JournalEntry{}, RemovedDirs: []string{}, Applied: in.Apply}
+	if err := ctx.Err(); err != nil {
+		return res, err
+	}
+	if in.Apply && !s.cfg.MCP.AllowDelete {
+		return res, errDeleteDisabled
+	}
+	if in.OlderThan <= 0 {
+		return res, fmt.Errorf("journal prune: older-than must be positive, got %s", in.OlderThan)
+	}
+	now := in.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+
+	docs, err := storage.ListJournal(ctx, s.db, 0)
+	if err != nil {
+		return res, fmt.Errorf("memory: prune journal: %w", err)
+	}
+	for _, d := range docs {
+		if s.hiddenCollection(d.Collection) {
+			continue
+		}
+		age, dated := journalAge(d, now)
+		switch {
+		case !dated:
+			res.SkippedUndated++
+		case age <= in.OlderThan:
+		case storage.JournalPromotedTo(d) == "":
+			res.SkippedUnreviewed++
+		default:
+			res.Pruned = append(res.Pruned, JournalEntry{
+				URI:        d.URI,
+				Collection: d.Collection,
+				Title:      d.Title,
+				CapturedAt: storage.JournalCapturedAt(d),
+				ModifiedAt: d.ModifiedAt,
+			})
+		}
+	}
+	if !in.Apply {
+		return res, nil
+	}
+
+	candidates := res.Pruned
+	res.Pruned = []JournalEntry{}
+	var dirs []string
+	for _, e := range candidates {
+		if _, err := s.Forget(ctx, e.URI); err != nil {
+			return res, fmt.Errorf("journal prune: %w", err)
+		}
+		res.Pruned = append(res.Pruned, e)
+		if dir := path.Dir(e.URI); dir != "." && !slices.Contains(dirs, dir) {
+			dirs = append(dirs, dir)
+		}
+	}
+	slices.Sort(dirs)
+	for _, dir := range dirs {
+		removed, err := s.removeIfOnlyLog(ctx, dir)
+		if err != nil {
+			return res, fmt.Errorf("journal prune: %w", err)
+		}
+		if removed {
+			res.RemovedDirs = append(res.RemovedDirs, dir)
+		}
+	}
+
+	return res, nil
+}
+
+// journalAge returns now minus the entry's captured_at, else its modified_at,
+// and false when neither parses as RFC 3339.
+func journalAge(d model.Document, now time.Time) (time.Duration, bool) {
+	for _, ts := range []string{storage.JournalCapturedAt(d), d.ModifiedAt} {
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			return now.Sub(t), true
+		}
+	}
+
+	return 0, false
+}
+
+// removeIfOnlyLog deletes the tree directory dir when its only entry is the
+// log.md that Remember keeps for the entries written there, removing it through
+// Forget so an indexed log.md leaves the index too. Any other entry keeps the
+// directory, index.md included: it is authored structure, never prune output.
+func (s *Service) removeIfOnlyLog(ctx context.Context, dir string) (bool, error) {
+	abs, _, err := s.resolveWritable(ctx, dir)
+	if err != nil {
+		return false, err
+	}
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return false, fmt.Errorf("read dir %q: %w", dir, err)
+	}
+	for _, e := range entries {
+		if !e.Type().IsRegular() || !strings.EqualFold(e.Name(), "log.md") {
+			return false, nil
+		}
+	}
+	for _, e := range entries {
+		if _, err := s.Forget(ctx, path.Join(dir, e.Name())); err != nil {
+			return false, err
+		}
+	}
+	if err := os.Remove(abs); err != nil {
+		return false, fmt.Errorf("remove dir %q: %w", dir, err)
+	}
+	s.logger.Info("journal prune removed directory", "dir", dir)
+
+	return true, nil
 }

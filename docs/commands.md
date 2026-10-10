@@ -58,12 +58,14 @@ fallback for files that don't declare one.
 
 Journal entries (written by `mnemos hook stop`) are excluded from search and reach
 the kb only by promotion ([ADR-0011](adr/0011-journal-tier.md)). These commands
-drive that review; `promote` writes and requires `[mcp] allow_write = true`.
+drive that review; `promote` writes and requires `[mcp] allow_write = true`, and
+`prune --apply` deletes and requires `[mcp] allow_delete = true`.
 
 | Command | Purpose |
 |---|---|
 | `mnemos journal pending [--limit N] [--json]` | List journal entries not yet reviewed (no `promoted_to`), oldest first |
 | `mnemos journal promote <entry-uri> <target>` | Stamp `promoted_to` on a journal entry: the uri of the kb document now holding its content (write it first), or `none` when nothing was worth keeping. An entry already stamped is refused |
+| `mnemos journal prune --older-than DURATION [--apply] [--json]` | Delete reviewed journal entries captured more than DURATION ago (a Go duration such as `12h`, or days such as `30d`). Dry run by default: it lists what would go. `--apply` deletes and requires `[mcp] allow_delete = true`. Only entries already stamped with `promoted_to` are eligible; mark unreviewed ones with `mnemos journal promote` first. A dated directory left empty is removed with its `log.md` |
 
 ## Maintenance and diagnosis
 
