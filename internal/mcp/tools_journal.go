@@ -56,7 +56,7 @@ func (s *Server) handleJournalPending(ctx context.Context, _ *mcpsdk.CallToolReq
 func (s *Server) registerJournalPromote() {
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "mnemos.journal_promote",
-		Description: "Record that a journal entry was handled, by stamping its promoted_to field. Call it AFTER the kb document has been written with mnemos.remember, passing that document's uri; pass none when the entry was reviewed and nothing was worth promoting. This tool never writes the kb document itself. An entry already stamped is refused.",
+		Description: "Record that a journal entry was handled, by stamping its promoted_to field. Call it AFTER the kb document has been written with mnemos.remember, passing that document's uri; pass none when the entry was reviewed and nothing was worth promoting. This tool never writes the kb document itself. An entry already stamped is refused. Calls are not serialized: do not promote the same entry from two sessions at once.",
 	}, s.handleJournalPromote)
 }
 

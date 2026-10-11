@@ -151,8 +151,11 @@ concurrent writers to the same entry: `hook stop` and `journal_promote` run in
 different processes, and each reads, checks, then rewrites the file. A promote
 that lands between a Stop's check and its write is overwritten, and two promotes
 racing on one entry can both succeed, the second stamp replacing the first. The
-window is short and a Stop rewrites only the turn that just ended, which is rarely
-the one under review, so this is accepted rather than locked.
+reverse order loses content instead: a promote that reads the entry before a Stop
+rewrites it, and writes after, puts back the older body under its stamp, so the
+newer turn is gone and the entry is eligible for prune. The window is short and a
+Stop rewrites only the turn that just ended, which is rarely the one under review,
+so this is accepted rather than locked.
 
 ## Consequences
 

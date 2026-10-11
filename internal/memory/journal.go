@@ -30,7 +30,8 @@ var ErrInvalidPromoteTarget = errors.New("journal: invalid promotion target")
 
 // ErrAlreadyPromoted reports an entry that already carries promoted_to. It is
 // refused rather than re-stamped, so a second pass cannot rewrite the record of
-// where the content went.
+// where the content went. The check is not serialized across processes: two
+// promotes racing on one entry can both pass it (ADR-0011, section 6).
 var ErrAlreadyPromoted = errors.New("journal: entry already promoted")
 
 // JournalEntry is one journal entry as the review surfaces show it. CapturedAt
@@ -94,6 +95,11 @@ type PromoteJournalResult struct {
 // entry that already carries promoted_to, in its index row or in the file on
 // disk (checked inside the edit, so a stale index cannot let it through), is
 // refused (ErrAlreadyPromoted).
+//
+// These refusals assume no concurrent writer. Nothing serializes a promote
+// against another promote or a Stop hook rewriting the same entry: a racing
+// promote can replace this stamp, and a Stop that writes between this read and
+// this write is overwritten by the body read here (ADR-0011, section 6).
 //
 // Every other frontmatter byte and the body are kept verbatim. The file is
 // written before the reindex; a reindex failure wraps ErrReindexAfterWrite, as
