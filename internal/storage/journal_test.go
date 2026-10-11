@@ -185,7 +185,7 @@ func TestListJournalPendingExcludesPromotedAndKB(t *testing.T) {
 	putDoc(t, db, model.Document{ID: "k1", URI: "adr/0001.md", Collection: "adr",
 		FrontmatterJSON: `{"type":"decision"}`})
 
-	got, err := storage.ListPendingJournal(ctx, db, 0)
+	got, err := storage.ListPendingJournal(ctx, db, nil, 0)
 	require.NoError(t, err)
 
 	uris := make([]string, 0, len(got))
@@ -207,7 +207,7 @@ func TestListJournalPendingTreatsMissingFrontmatterAsPending(t *testing.T) {
 	putDoc(t, db, model.Document{ID: "j2", URI: "journal/broken.md", Collection: "journal", Journal: true,
 		FrontmatterJSON: `{not json`})
 
-	got, err := storage.ListPendingJournal(ctx, db, 0)
+	got, err := storage.ListPendingJournal(ctx, db, nil, 0)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 }
@@ -223,33 +223,35 @@ func TestListJournalPendingOldestFirstWithLimit(t *testing.T) {
 	putDoc(t, db, model.Document{ID: "j2", URI: "journal/b.md", Collection: "journal", Journal: true, ModifiedAt: "2026-09-01T00:00:00Z"})
 	putDoc(t, db, model.Document{ID: "j3", URI: "journal/c.md", Collection: "journal", Journal: true, ModifiedAt: "2026-09-02T00:00:00Z"})
 
-	got, err := storage.ListPendingJournal(ctx, db, 0)
+	got, err := storage.ListPendingJournal(ctx, db, nil, 0)
 	require.NoError(t, err)
 	require.Len(t, got, 3)
 	require.Equal(t, "journal/b.md", got[0].URI)
 	require.Equal(t, "journal/c.md", got[1].URI)
 	require.Equal(t, "journal/a.md", got[2].URI)
 
-	got, err = storage.ListPendingJournal(ctx, db, 2)
+	got, err = storage.ListPendingJournal(ctx, db, nil, 2)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	require.Equal(t, "journal/b.md", got[0].URI)
 
-	got, err = storage.ListPendingJournal(ctx, db, -1)
+	got, err = storage.ListPendingJournal(ctx, db, nil, -1)
 	require.NoError(t, err)
 	require.Len(t, got, 3, "a non-positive limit returns every pending entry")
 }
 
 // TestListJournalPendingEmptyIsNotAnError guards the first-run case.
 func TestListJournalPendingEmptyIsNotAnError(t *testing.T) {
-	got, err := storage.ListPendingJournal(context.Background(), openMigrated(t), 0)
+	got, err := storage.ListPendingJournal(context.Background(), openMigrated(t), nil, 0)
 	require.NoError(t, err)
 	require.Empty(t, got)
 }
 
-// TestJournalPromotedToReadsFrontmatter pins the Go-side reader to the same
-// cases the SQL pending filter treats as unpromoted.
+// TestJournalPromotedToReadsFrontmatter pins the reader on the cases the
+// pending filter treats as unpromoted, and a uri with no document.
 func TestJournalPromotedToReadsFrontmatter(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
 	cases := []struct {
 		name string
 		js   string
@@ -264,10 +266,70 @@ func TestJournalPromotedToReadsFrontmatter(t *testing.T) {
 		{"invalid frontmatter", `{nope`, ""},
 	}
 	for _, tc := range cases {
+		putDoc(t, db, model.Document{ID: tc.name, URI: "journal/" + tc.name + ".md", Collection: "journal", Journal: true,
+			FrontmatterJSON: tc.js})
+	}
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, storage.JournalPromotedTo(model.Document{FrontmatterJSON: tc.js}))
+			got, err := storage.JournalPromotedTo(ctx, db, "journal/"+tc.name+".md")
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
 		})
 	}
+	got, err := storage.JournalPromotedTo(ctx, db, "journal/missing.md")
+	require.NoError(t, err)
+	require.Empty(t, got)
 	require.Equal(t, "2026-09-01T00:00:00Z",
 		storage.JournalCapturedAt(model.Document{FrontmatterJSON: `{"captured_at":"2026-09-01T00:00:00Z"}`}))
+}
+
+// TestJournalPendingAgreesWithPromotedTo is the P26 regression: an entry is in
+// the pending list exactly when its promoted_to reads back empty, whitespace
+// other than spaces included.
+func TestJournalPendingAgreesWithPromotedTo(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	cases := map[string]string{
+		"journal/tab.md":     `{"promoted_to":"\t"}`,
+		"journal/newline.md": `{"promoted_to":"\n "}`,
+		"journal/uri.md":     `{"promoted_to":"adr/0001.md"}`,
+		"journal/number.md":  `{"promoted_to":5}`,
+		"journal/absent.md":  `{"type":"journal"}`,
+	}
+	for uri, js := range cases {
+		putDoc(t, db, model.Document{ID: uri, URI: uri, Collection: "journal", Journal: true, FrontmatterJSON: js})
+	}
+
+	got, err := storage.ListPendingJournal(ctx, db, nil, 0)
+	require.NoError(t, err)
+	pending := make(map[string]bool)
+	for _, d := range got {
+		require.Empty(t, d.PromotedTo, d.URI)
+		pending[d.URI] = true
+	}
+	for uri := range cases {
+		promoted, err := storage.JournalPromotedTo(ctx, db, uri)
+		require.NoError(t, err)
+		require.Equal(t, promoted == "", pending[uri], "%s: promoted_to %q", uri, promoted)
+	}
+	require.Len(t, pending, 3)
+}
+
+// TestJournalPendingHiddenBeforeLimit pins the visibility filter in SQL: hidden
+// collections are left out before the cap, so they never eat into the page.
+func TestJournalPendingHiddenBeforeLimit(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	putDoc(t, db, model.Document{ID: "j1", URI: "journal/a.md", Collection: "secret", Journal: true, ModifiedAt: "2026-09-01T00:00:00Z"})
+	putDoc(t, db, model.Document{ID: "j2", URI: "journal/b.md", Collection: "journal", Journal: true, ModifiedAt: "2026-09-02T00:00:00Z"})
+	putDoc(t, db, model.Document{ID: "j3", URI: "journal/c.md", Journal: true, ModifiedAt: "2026-09-03T00:00:00Z"})
+
+	got, err := storage.ListPendingJournal(ctx, db, []string{"secret", ""}, 1)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "journal/b.md", got[0].URI)
+
+	got, err = storage.ListPendingJournal(ctx, db, []string{"secret"}, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 2, "a document without a collection is never hidden")
 }

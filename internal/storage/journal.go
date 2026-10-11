@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -22,43 +23,67 @@ func IsJournalType(docType string) bool {
 	return strings.EqualFold(strings.TrimSpace(docType), JournalDocType)
 }
 
+// JournalDoc is a journal row with its review state read by the index:
+// PromotedTo is the promoted_to value, "" while the entry is pending.
+type JournalDoc struct {
+	model.Document
+
+	PromotedTo string
+}
+
+// promotedToSQL is the single definition of an entry's review state: the
+// trimmed promoted_to value, "" when it is absent, null, blank, or the
+// frontmatter is empty or invalid (json_extract raises on invalid JSON, so the
+// CASE guards it). A non-string scalar reads back as its text. Pending means
+// this expression is "".
+const promotedToSQL = `TRIM(CASE WHEN json_valid(frontmatter_json)
+	THEN COALESCE(json_extract(frontmatter_json, '$.` + PromotedToKey + `'), '')
+	ELSE '' END, char(32, 9, 10, 11, 12, 13))`
+
 // ListJournal returns journal documents ordered newest first, capped at limit
 // (a limit <= 0 returns all of them). It reads the stored journal flag rather
 // than matching a uri prefix, so an entry stays listed after a move or a rename
 // (ADR-0011).
 //
-// Entries are returned whether or not they have been promoted; the frontmatter
-// key PromotedToKey on each says which. Consolidation filters on it so a second
-// pass does not re-promote the same material (ADR-0011).
-func ListJournal(ctx context.Context, db *sql.DB, limit int) ([]model.Document, error) {
-	return queryJournal(ctx, db, "", "DESC", limit)
+// Entries are returned whether or not they have been promoted; PromotedTo on
+// each says which. Consolidation filters on it so a second pass does not
+// re-promote the same material (ADR-0011).
+func ListJournal(ctx context.Context, db *sql.DB, limit int) ([]JournalDoc, error) {
+	return queryJournal(ctx, db, "", nil, "DESC", limit)
 }
 
-// ListPendingJournal returns the journal entries not yet reviewed: those whose
-// frontmatter carries no PromotedToKey value (absent, JSON null, or empty). An
-// entry with empty or invalid frontmatter has nothing to say it was handled, so
-// it is pending. Entries come oldest first, the order consolidation works
-// through them, capped at limit (a limit <= 0 returns all of them). Like
-// ListJournal it keys on the stored journal flag, never a uri prefix (ADR-0011).
-func ListPendingJournal(ctx context.Context, db *sql.DB, limit int) ([]model.Document, error) {
-	// json_extract raises on invalid JSON; the CASE guards it the way
-	// documents.go does, and maps an unparseable row to pending.
-	pending := ` AND TRIM(CASE WHEN json_valid(frontmatter_json)
-	                 THEN COALESCE(json_extract(frontmatter_json, '$.` + PromotedToKey + `'), '')
-	                 ELSE '' END) = ''`
+// ListPendingJournal returns the journal entries not yet reviewed (PromotedTo
+// is ""), leaving out those whose collection is in hidden. An entry with empty
+// or invalid frontmatter has nothing to say it was handled, so it is pending.
+// Entries come oldest first, the order consolidation works through them, capped
+// at limit (a limit <= 0 returns all of them). The cap applies after the hidden
+// filter, so hidden rows never eat into the page. Like ListJournal it keys on
+// the stored journal flag, never a uri prefix (ADR-0011).
+func ListPendingJournal(ctx context.Context, db *sql.DB, hidden []string, limit int) ([]JournalDoc, error) {
+	filter := ` AND ` + promotedToSQL + ` = ''`
+	var args []any
+	for _, c := range hidden {
+		if c == "" {
+			continue
+		}
+		args = append(args, c)
+	}
+	if len(args) > 0 {
+		filter += ` AND COALESCE(collection, '') NOT IN (?` + strings.Repeat(", ?", len(args)-1) + `)`
+	}
 
-	return queryJournal(ctx, db, pending, "ASC", limit)
+	return queryJournal(ctx, db, filter, args, "ASC", limit)
 }
 
 // queryJournal runs the shared journal listing: journal rows narrowed by the
-// extra filter, ordered by COALESCE(modified_at, indexed_at) in dir then uri.
-func queryJournal(ctx context.Context, db *sql.DB, filter, dir string, limit int) ([]model.Document, error) {
+// extra filter and its args, ordered by COALESCE(modified_at, indexed_at) in
+// dir then uri.
+func queryJournal(ctx context.Context, db *sql.DB, filter string, args []any, dir string, limit int) ([]JournalDoc, error) {
 	q := `SELECT id, uri, collection, content_hash, COALESCE(title, ''),
 	             COALESCE(mime_type, ''), size_bytes, COALESCE(modified_at, ''),
-	             indexed_at, COALESCE(frontmatter_json, '')
+	             indexed_at, COALESCE(frontmatter_json, ''), ` + promotedToSQL + `
 	      FROM documents WHERE journal = 1` + filter + `
 	      ORDER BY COALESCE(modified_at, indexed_at) ` + dir + `, uri`
-	args := []any{}
 	if limit > 0 {
 		q += " LIMIT ?"
 		args = append(args, limit)
@@ -70,12 +95,12 @@ func queryJournal(ctx context.Context, db *sql.DB, filter, dir string, limit int
 	}
 	defer func() { _ = rows.Close() }()
 
-	var out []model.Document
+	var out []JournalDoc
 	for rows.Next() {
-		var d model.Document
+		var d JournalDoc
 		if err := rows.Scan(
 			&d.ID, &d.URI, &d.Collection, &d.ContentHash, &d.Title,
-			&d.MimeType, &d.SizeBytes, &d.ModifiedAt, &d.IndexedAt, &d.FrontmatterJSON,
+			&d.MimeType, &d.SizeBytes, &d.ModifiedAt, &d.IndexedAt, &d.FrontmatterJSON, &d.PromotedTo,
 		); err != nil {
 			return nil, fmt.Errorf("storage: scan journal row: %w", err)
 		}
@@ -129,13 +154,22 @@ func IsJournalURI(ctx context.Context, db *sql.DB, uri string) (bool, error) {
 	}
 }
 
-// JournalPromotedTo returns the entry's PromotedToKey value: the kb document
-// that now holds its content, or "none" when it was reviewed and nothing was
-// worth promoting. It returns "" when the key is absent, null, or the
-// frontmatter is empty or invalid, the same cases ListPendingJournal treats as
-// pending (ADR-0011).
-func JournalPromotedTo(d model.Document) string {
-	return frontmatterString(d.FrontmatterJSON, PromotedToKey)
+// JournalPromotedTo returns the promoted_to value of the indexed document at
+// uri, read with the same expression ListPendingJournal filters on: the kb
+// document that now holds the entry's content, "none" when nothing was worth
+// promoting, or "" when the entry is pending. A uri with no document returns "".
+func JournalPromotedTo(ctx context.Context, db *sql.DB, uri string) (string, error) {
+	var v string
+	err := db.QueryRowContext(ctx,
+		`SELECT `+promotedToSQL+` FROM documents WHERE uri = ?`, uri).Scan(&v)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", nil
+	case err != nil:
+		return "", fmt.Errorf("storage: promoted_to for %q: %w", uri, err)
+	default:
+		return v, nil
+	}
 }
 
 // JournalCapturedAt returns the entry's CapturedAtKey value, or "" when the
@@ -146,7 +180,7 @@ func JournalCapturedAt(d model.Document) string {
 
 // frontmatterString reads one top-level key from stored frontmatter JSON as
 // trimmed text. A non-string scalar is rendered with fmt so a hand-written
-// value still reads back non-empty, matching the SQL pending test.
+// value still reads back non-empty.
 func frontmatterString(js, key string) string {
 	var m map[string]any
 	if js == "" || json.Unmarshal([]byte(js), &m) != nil {

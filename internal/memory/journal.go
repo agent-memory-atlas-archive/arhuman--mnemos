@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -51,28 +50,20 @@ type JournalEntry struct {
 // dropped like on every other read surface. An empty tier is an empty slice,
 // never an error.
 func (s *Service) ListPendingJournal(ctx context.Context, limit int) ([]JournalEntry, error) {
-	// The cap is applied after the visibility filter so hidden rows cannot eat
-	// into the page a caller asked for.
-	docs, err := storage.ListPendingJournal(ctx, s.db, 0)
+	docs, err := storage.ListPendingJournal(ctx, s.db, s.cfg.HiddenCollections(), limit)
 	if err != nil {
 		return nil, fmt.Errorf("memory: pending journal: %w", err)
 	}
 
 	out := make([]JournalEntry, 0, len(docs))
 	for _, d := range docs {
-		if s.hiddenCollection(d.Collection) {
-			continue
-		}
 		out = append(out, JournalEntry{
 			URI:        d.URI,
 			Collection: d.Collection,
 			Title:      d.Title,
-			CapturedAt: storage.JournalCapturedAt(d),
+			CapturedAt: storage.JournalCapturedAt(d.Document),
 			ModifiedAt: d.ModifiedAt,
 		})
-		if limit > 0 && len(out) == limit {
-			break
-		}
 	}
 
 	return out, nil
@@ -122,7 +113,11 @@ func (s *Service) PromoteJournal(ctx context.Context, in PromoteJournalInput) (P
 	if entry == nil || !entry.Journal {
 		return PromoteJournalResult{}, fmt.Errorf("%w: %q", ErrNotJournalEntry, in.EntryURI)
 	}
-	if prev := storage.JournalPromotedTo(*entry); prev != "" {
+	prev, err := storage.JournalPromotedTo(ctx, s.db, entry.URI)
+	if err != nil {
+		return PromoteJournalResult{}, err
+	}
+	if prev != "" {
 		return PromoteJournalResult{}, fmt.Errorf("%w: %q has promoted_to %q", ErrAlreadyPromoted, entry.URI, prev)
 	}
 
@@ -255,18 +250,18 @@ func (s *Service) PruneJournal(ctx context.Context, in PruneJournalInput) (Prune
 // planPrune sorts the visible journal rows of docs into res: eligible entries
 // in Pruned (uri order), and the unreviewed and undated skip counts. It reads
 // nothing but the rows.
-func (s *Service) planPrune(res *PruneJournalResult, docs []model.Document, olderThan time.Duration, now time.Time) {
+func (s *Service) planPrune(res *PruneJournalResult, docs []storage.JournalDoc, olderThan time.Duration, now time.Time) {
 	for _, d := range docs {
 		if s.hiddenCollection(d.Collection) {
 			continue
 		}
-		capturedAt, promotedTo := journalMeta(d)
+		capturedAt := storage.JournalCapturedAt(d.Document)
 		age, dated := journalAge(capturedAt, d.ModifiedAt, now)
 		switch {
 		case !dated:
 			res.SkippedUndated++
 		case age <= olderThan:
-		case promotedTo == "":
+		case d.PromotedTo == "":
 			res.SkippedUnreviewed++
 		default:
 			res.Pruned = append(res.Pruned, JournalEntry{
@@ -312,25 +307,6 @@ func (s *Service) applyPrune(ctx context.Context, res PruneJournalResult) (Prune
 	}
 
 	return res, nil
-}
-
-// journalMeta decodes a journal row's frontmatter once and returns its
-// captured_at and promoted_to values, each "" when absent. A non-string scalar
-// is rendered with fmt, as storage's pending test does.
-func journalMeta(d model.Document) (capturedAt, promotedTo string) {
-	var m map[string]any
-	if d.FrontmatterJSON == "" || json.Unmarshal([]byte(d.FrontmatterJSON), &m) != nil {
-		return "", ""
-	}
-	str := func(key string) string {
-		if v, ok := m[key]; ok && v != nil {
-			return strings.TrimSpace(fmt.Sprint(v))
-		}
-
-		return ""
-	}
-
-	return str(storage.CapturedAtKey), str(storage.PromotedToKey)
 }
 
 // journalAge returns now minus capturedAt, else modifiedAt, and false when

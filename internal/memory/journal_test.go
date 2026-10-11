@@ -126,7 +126,9 @@ func TestJournalPromoteStampsAndPreservesBytes(t *testing.T) {
 	doc, err := storage.GetDocumentByURI(context.Background(), f.db, entry)
 	require.NoError(t, err)
 	require.True(t, doc.Journal, "the stamp does not change the entry's tier")
-	require.Equal(t, target, storage.JournalPromotedTo(*doc))
+	promoted, err := storage.JournalPromotedTo(context.Background(), f.db, entry)
+	require.NoError(t, err)
+	require.Equal(t, target, promoted)
 }
 
 // TestJournalPromoteNoneAndNullKey covers "none" (reviewed, nothing promoted)
