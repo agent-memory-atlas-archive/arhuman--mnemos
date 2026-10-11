@@ -75,6 +75,64 @@ linters:
       - linters:
           - gosec
         text: "G(101|201|202)"
+      # Legacy breaches of the gocognit 15 / funlen 60x40 gate, one rule per site,
+      # so a new function over the limit fails CI. Remove a rule when its
+      # function is paid down; never add one for new code.
+      - path: internal/cli/add\.go$
+        linters: [gocognit, funlen]
+        text: 'func `runAdd`|Function ''runAdd'''
+      - path: internal/cli/hook\.go$
+        linters: [gocognit]
+        text: 'func `writeWorkingSet`'
+      - path: internal/cli/init\.go$
+        linters: [gocognit]
+        text: 'func `runInit`'
+      - path: internal/cli/migrate\.go$
+        linters: [gocognit, funlen]
+        text: 'func `runMigrate`|Function ''runMigrate'''
+      - path: internal/doctor/doctor\.go$
+        linters: [gocognit, funlen]
+        text: 'func `tagHygiene`|Function ''tagHygiene'''
+      - path: internal/eval/eval\.go$
+        linters: [gocognit, funlen]
+        text: 'func `Run`|Function ''Run'''
+      - path: internal/eval/holdout\.go$
+        linters: [gocognit]
+        text: 'func `extractPairs`'
+      - path: internal/ingest/process\.go$
+        linters: [gocognit, funlen]
+        text: 'func `\(\*Pipeline\)\.prepare`|Function ''prepare'''
+      - path: internal/ingest/reindex_content\.go$
+        linters: [gocognit]
+        text: 'func `\(\*Pipeline\)\.ReindexContent`'
+      - path: internal/ingest/watcher\.go$
+        linters: [gocognit]
+        text: 'func `\(\*Watcher\)\.addTreeAndSweep`'
+      - path: internal/memory/write\.go$
+        linters: [gocognit, funlen]
+        text: 'func `\(\*Service\)\.Remember`|Function ''Remember'''
+      - path: internal/search/hybrid\.go$
+        linters: [gocognit, funlen]
+        text: 'func `Reindex`|Function ''Reindex'''
+      - path: internal/search/similar\.go$
+        linters: [gocognit, funlen]
+        text: 'func `Similar`|Function ''Similar'''
+      - path: internal/workspace/workspace\.go$
+        linters: [gocognit, funlen]
+        text: 'func `Resolve`|Function ''Resolve'''
+      # Over the limit since P25 (on-disk promote guard); split tracked as P32.
+      - path: internal/memory/edit\.go$
+        linters: [gocognit]
+        text: 'func `applyEdits`'
+      - path: internal/ingest/okfy\.go$
+        linters: [funlen]
+        text: "Function 'Okfy'"
+      - path: internal/ingest/pipeline\.go$
+        linters: [funlen]
+        text: "Function 'Run'"
+      - path: internal/storage/documents\.go$
+        linters: [funlen]
+        text: "Function 'ListDocuments'"
 
   settings:
     govet:
@@ -94,12 +152,11 @@ linters:
         - "-ST1000"
         - "-U1000"
     gocognit:
-      # Ratchet baseline: 2026-06-29 worst offender is browse.List (39).
-      # Paydown ladder: 25 -> 20 -> 15. Lower one rung as offenders are refactored; never regress.
-      min-complexity: 25
+      # Final rung of the 25 -> 20 -> 15 ladder; legacy sites are excluded one by one above.
+      min-complexity: 15
     funlen:
-      lines: 80
-      statements: 60
+      lines: 60
+      statements: 40
     nestif:
       # Ratchet baseline: current worst is depth 5 (memory/write.go). Lower to 4 once paid down.
       min-complexity: 5
