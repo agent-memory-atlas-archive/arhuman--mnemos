@@ -145,7 +145,7 @@ func runJournalPrune(cmd *cobra.Command, state *rootState, olderThan string, app
 				renderPrunedJournal(out, res)
 			}
 
-			return err //nolint:wrapcheck // PruneJournal already carries the "journal prune:" prefix
+			return err
 		}
 		if asJSON {
 			enc := json.NewEncoder(out)

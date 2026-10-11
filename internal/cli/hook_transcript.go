@@ -94,7 +94,7 @@ type messageContent struct {
 // or blocks of an unexpected type, leave c empty instead of failing the line.
 func (c *messageContent) UnmarshalJSON(raw []byte) error {
 	if s := bytes.TrimLeft(raw, " \t\r\n"); len(s) > 0 && s[0] == '"' {
-		return json.Unmarshal(raw, &c.Text) //nolint:wrapcheck // the caller skips a line that fails to decode
+		return json.Unmarshal(raw, &c.Text)
 	}
 	if json.Unmarshal(raw, &c.Blocks) != nil {
 		c.Blocks = nil
@@ -229,7 +229,7 @@ var errTranscriptLine = errors.New("transcript line too long")
 func scanLinesBackward(f *os.File, fn func(line []byte) bool) error {
 	st, err := f.Stat()
 	if err != nil {
-		return err //nolint:wrapcheck // the caller only tests for failure
+		return err
 	}
 	pos := st.Size()
 	var carry []byte
@@ -238,7 +238,7 @@ func scanLinesBackward(f *os.File, fn func(line []byte) bool) error {
 		pos -= n
 		chunk := make([]byte, n, n+int64(len(carry)))
 		if _, err = f.ReadAt(chunk, pos); err != nil {
-			return err //nolint:wrapcheck // the caller only tests for failure
+			return err
 		}
 		var done bool
 		if carry, done, err = emitLines(append(chunk, carry...), fn); done || err != nil {
