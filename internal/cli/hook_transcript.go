@@ -300,7 +300,7 @@ func addAssistant(t *memory.JournalTurn, blocks []contentBlock, cwd string) {
 // attachment block. An attachment-only prompt, such as a pasted image, reads as
 // its block types in brackets, so the turn still starts there; a type that is
 // not a short plain identifier (see attachmentLabel) reads as [attachment], so
-// a crafted type cannot inject journal sections.
+// the attachment type alone cannot forge journal sections (other fields still can).
 func userPrompt(text string, blocks []contentBlock) (string, bool) {
 	if blocks == nil {
 		text = strings.TrimSpace(text)
@@ -328,9 +328,10 @@ func userPrompt(text string, blocks []contentBlock) (string, bool) {
 	return strings.Join(texts, "\n\n"), len(texts) > 0
 }
 
-// attachmentLabel renders an attachment block type as "[type]" when it is 1 to
-// 32 lowercase ASCII letters, digits or underscores, and as "[attachment]"
-// otherwise.
+// attachmentLabel renders an attachment block type as "[type]" when it is at
+// most 32 lowercase ASCII letters, digits or underscores, and as "[attachment]"
+// otherwise. The caller never passes "" (userPrompt skips empty types), which
+// would render as "[]".
 func attachmentLabel(typ string) string {
 	if len(typ) > 32 || strings.ContainsFunc(typ, func(r rune) bool {
 		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_'

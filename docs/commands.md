@@ -99,8 +99,11 @@ failed) when a secret is found or writes are disabled. Re-running it on the same
 turn updates that turn's entry instead of adding one, except that an entry already
 reviewed (a non-empty `promoted_to`) or whose frontmatter cannot be read is left
 untouched. A turn starts at the last user prompt holding text or an attachment;
-a tool result does not start one. A prompt with only attachments, such as a
-pasted image, is recorded as its block types in brackets (`[image]`).
+a tool result does not start one, and neither does a user line marked `isMeta`
+or any sidechain line, even with text (sidechain lines are ignored entirely). A
+prompt with only attachments, such as a pasted image, is recorded as its block
+types in brackets (`[image]`); a type that is not a plain identifier of up to 32
+lowercase letters, digits or underscores is recorded as `[attachment]`.
 [ADR-0011](adr/0011-journal-tier.md) is the full contract.
 
 ## Evaluation
