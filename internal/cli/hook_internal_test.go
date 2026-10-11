@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -67,6 +68,39 @@ func TestWorkingSetRef(t *testing.T) {
 	require.Equal(t, "(tasks/a.md)", workingSetRef(false, "mnemos", "tasks/a.md"))
 	require.Equal(t, "(mnemos: tasks/a.md)", workingSetRef(true, "mnemos", "tasks/a.md"))
 	require.Equal(t, "(tasks/a.md)", workingSetRef(true, "", "tasks/a.md"), "no collection, no label")
+}
+
+// TestReadLastTurnLiveHeapBound pins that the turn readLastTurn returns does not
+// keep the transcript alive: one 32 MiB turn of Write calls whose unread content
+// is 16 KiB each must leave under 8 MiB live once collected. B/op cannot catch
+// this, as it counts allocation, not retention.
+func TestReadLastTurnLiveHeapBound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("writes a 32 MiB transcript")
+	}
+	pad := strings.Repeat("x", 16<<10)
+	lines := make([]map[string]any, 0, 2001)
+	lines = append(lines, map[string]any{"type": "user", "message": map[string]any{"content": "go"}})
+	for range 2000 {
+		lines = append(lines, assistantLine(
+			map[string]any{"type": "text", "text": "done"},
+			map[string]any{"type": "tool_use", "name": "Write", "input": map[string]any{"file_path": "/w/a.go", "content": pad}},
+		))
+	}
+	path := writeTranscript(t, lines...)
+
+	var before, after runtime.MemStats
+	runtime.GC() //nolint:revive // live heap is only measurable after a completed collection
+	runtime.ReadMemStats(&before)
+	turn, ok := readLastTurn(path, "/w")
+	runtime.GC() //nolint:revive // live heap is only measurable after a completed collection
+	runtime.ReadMemStats(&after)
+	runtime.KeepAlive(turn)
+
+	require.True(t, ok)
+	require.Equal(t, []string{"a.go"}, turn.Files)
+	live := int64(after.HeapAlloc) - int64(before.HeapAlloc)
+	require.Less(t, live, int64(8<<20), "readLastTurn retained %d bytes", live)
 }
 
 // BenchmarkReadLastTurn reads the last turn of a 32 MiB transcript (2000
