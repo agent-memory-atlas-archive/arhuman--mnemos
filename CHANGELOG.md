@@ -29,6 +29,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   hit, with `(not in the index)` when the replacement is not indexed.
 
 ### Changed
+- 2026-10-11: `mnemos hook session-start` labels a working-set line with its
+  collection inside the parentheses, `title (collection: uri)`, instead of
+  between the title and the uri.
 - 2026-10-10: the Go toolchain is 1.27.2, which fixes 8 standard library
   vulnerabilities reported by govulncheck; golangci-lint moves to v2.14.0.
 - 2026-10-09: `docs/remote-access.md` documents using mnemos on a remote host
