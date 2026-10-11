@@ -63,6 +63,12 @@ func TestCapTokens(t *testing.T) {
 	require.True(t, strings.HasSuffix(strings.TrimRight(out, "\n"), "tokens]_"))
 }
 
+func TestWorkingSetRef(t *testing.T) {
+	require.Equal(t, "(tasks/a.md)", workingSetRef(false, "mnemos", "tasks/a.md"))
+	require.Equal(t, "(mnemos: tasks/a.md)", workingSetRef(true, "mnemos", "tasks/a.md"))
+	require.Equal(t, "(tasks/a.md)", workingSetRef(true, "", "tasks/a.md"), "no collection, no label")
+}
+
 // BenchmarkReadLastTurn reads the last turn of a long session transcript: 2000
 // turns of about 16 KiB each (32 MiB), the shape whose cost grows with the
 // session when the whole file is parsed on every Stop.

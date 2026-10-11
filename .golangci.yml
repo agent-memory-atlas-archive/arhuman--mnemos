@@ -83,9 +83,6 @@ linters:
       - path: internal/cli/add\.go$
         linters: [funlen, gocognit, gocyclo]
         text: 'cognitive complexity 24 of func `runAdd`|cyclomatic complexity 12 of func `runAdd`|Function ''runAdd'' is too long \(61 '
-      - path: internal/cli/hook\.go$
-        linters: [gocognit, gocyclo]
-        text: 'cognitive complexity 19 of func `writeWorkingSet`|cyclomatic complexity 13 of func `writeWorkingSet`'
       - path: internal/cli/init\.go$
         linters: [gocognit, gocyclo]
         text: 'cognitive complexity 17 of func `runInit`|cyclomatic complexity 14 of func `runInit`'

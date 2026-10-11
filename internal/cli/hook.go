@@ -169,14 +169,9 @@ func writeWorkingSet(ctx context.Context, buf *bytes.Buffer, a *app.App) {
 	if len(tasks) > 0 {
 		_, _ = fmt.Fprintln(buf, "\n### Open tasks")
 		for _, t := range tasks {
-			if labelled && t.Collection != "" {
-				_, _ = fmt.Fprintf(buf, "- [%s] %s — %s (%s)\n", t.Status, dash(t.Title), t.Collection, t.URI)
-			} else {
-				_, _ = fmt.Fprintf(buf, "- [%s] %s (%s)\n", t.Status, dash(t.Title), t.URI)
-			}
+			_, _ = fmt.Fprintf(buf, "- [%s] %s %s\n", t.Status, dash(t.Title), workingSetRef(labelled, t.Collection, t.URI))
 		}
 	}
-
 	if len(decisions) == 0 {
 		return
 	}
@@ -186,12 +181,18 @@ func writeWorkingSet(ctx context.Context, buf *bytes.Buffer, a *app.App) {
 		if strings.TrimSpace(title) == "" {
 			title = d.URI
 		}
-		if labelled && d.Collection != "" {
-			_, _ = fmt.Fprintf(buf, "- %s — %s (%s)\n", dash(title), d.Collection, d.URI)
-		} else {
-			_, _ = fmt.Fprintf(buf, "- %s (%s)\n", dash(title), d.URI)
-		}
+		_, _ = fmt.Fprintf(buf, "- %s %s\n", dash(title), workingSetRef(labelled, d.Collection, d.URI))
 	}
+}
+
+// workingSetRef renders where a working-set line comes from: "(uri)", or
+// "(collection: uri)" when lines are labelled with their collection.
+func workingSetRef(labelled bool, collection, uri string) string {
+	if labelled && collection != "" {
+		return "(" + collection + ": " + uri + ")"
+	}
+
+	return "(" + uri + ")"
 }
 
 // openTasks returns the workspace's in_progress and todo Task documents, ordered
