@@ -33,6 +33,7 @@ linters:
     - nlreturn         # enforces adding a new line before return statements for better visibility
     - revive           # it's a complex linter, requires config
     - gocognit         # cognitive complexity (readability-correlated) - the primary complexity gate
+    - gocyclo          # cyclomatic complexity (branch count), complements gocognit
     - funlen           # function length cap (orthogonal size signal)
     - nestif           # nesting depth cap (explicit arrow-code gate)
   disable:
@@ -40,7 +41,6 @@ linters:
     - err113           # reports incorrect error compairisons (== and !=, instead of errors.Is)
     - exhaustruct      # it makes sure that you define every attribute of a struct, makes code too verbose
     - gochecknoglobals # discourages the use of private global variables (does not apply to exported variables as those could make sense)
-    - gocyclo          # simpler version of cyclop
     - lll              # line length limiter
     - misspell         # fixes common misspellings
     - mnd              # checks for magic numbers (constants without names), but this requires a huge list of exceptions to be "usable"
@@ -75,60 +75,83 @@ linters:
       - linters:
           - gosec
         text: "G(101|201|202)"
-      # Legacy breaches of the gocognit 15 / funlen 60x40 gate, one rule per site,
-      # so a new function over the limit fails CI. Remove a rule when its
-      # function is paid down; never add one for new code.
+      # Legacy breaches of the gocognit 15 / gocyclo 11 / funlen 60x40 gate, one
+      # rule per site pinned to its current score: a new function over a limit
+      # fails CI, and so does a legacy one that grows. Lower the score when a
+      # function is paid down, remove the rule when it passes; never add one for
+      # new code.
       - path: internal/cli/add\.go$
-        linters: [gocognit, funlen]
-        text: 'func `runAdd`|Function ''runAdd'''
+        linters: [funlen, gocognit, gocyclo]
+        text: 'cognitive complexity 24 of func `runAdd`|cyclomatic complexity 12 of func `runAdd`|Function ''runAdd'' is too long \(61 '
       - path: internal/cli/hook\.go$
-        linters: [gocognit]
-        text: 'func `writeWorkingSet`'
+        linters: [gocognit, gocyclo]
+        text: 'cognitive complexity 19 of func `writeWorkingSet`|cyclomatic complexity 13 of func `writeWorkingSet`'
       - path: internal/cli/init\.go$
-        linters: [gocognit]
-        text: 'func `runInit`'
+        linters: [gocognit, gocyclo]
+        text: 'cognitive complexity 17 of func `runInit`|cyclomatic complexity 14 of func `runInit`'
       - path: internal/cli/migrate\.go$
-        linters: [gocognit, funlen]
-        text: 'func `runMigrate`|Function ''runMigrate'''
+        linters: [funlen, gocognit, gocyclo]
+        text: 'cognitive complexity 18 of func `runMigrate`|cyclomatic complexity 16 of func `runMigrate`|Function ''runMigrate'' has too many statements \(43 '
       - path: internal/doctor/doctor\.go$
-        linters: [gocognit, funlen]
-        text: 'func `tagHygiene`|Function ''tagHygiene'''
+        linters: [funlen, gocognit, gocyclo]
+        text: 'cognitive complexity 24 of func `tagHygiene`|cyclomatic complexity 15 of func `tagHygiene`|Function ''tagHygiene'' is too long \(61 '
       - path: internal/eval/eval\.go$
-        linters: [gocognit, funlen]
-        text: 'func `Run`|Function ''Run'''
+        linters: [funlen, gocognit, gocyclo]
+        text: 'cognitive complexity 17 of func `Run`|cyclomatic complexity 15 of func `Run`|Function ''Run'' has too many statements \(46 '
       - path: internal/eval/holdout\.go$
         linters: [gocognit]
-        text: 'func `extractPairs`'
-      - path: internal/ingest/process\.go$
-        linters: [gocognit, funlen]
-        text: 'func `\(\*Pipeline\)\.prepare`|Function ''prepare'''
-      - path: internal/ingest/reindex_content\.go$
-        linters: [gocognit]
-        text: 'func `\(\*Pipeline\)\.ReindexContent`'
-      - path: internal/ingest/watcher\.go$
-        linters: [gocognit]
-        text: 'func `\(\*Watcher\)\.addTreeAndSweep`'
-      - path: internal/memory/write\.go$
-        linters: [gocognit, funlen]
-        text: 'func `\(\*Service\)\.Remember`|Function ''Remember'''
-      - path: internal/search/hybrid\.go$
-        linters: [gocognit, funlen]
-        text: 'func `Reindex`|Function ''Reindex'''
-      - path: internal/search/similar\.go$
-        linters: [gocognit, funlen]
-        text: 'func `Similar`|Function ''Similar'''
-      - path: internal/workspace/workspace\.go$
-        linters: [gocognit, funlen]
-        text: 'func `Resolve`|Function ''Resolve'''
+        text: 'cognitive complexity 17 of func `extractPairs`'
       - path: internal/ingest/okfy\.go$
-        linters: [funlen]
-        text: "Function 'Okfy'"
+        linters: [funlen, gocyclo]
+        text: 'cyclomatic complexity 16 of func `Okfy`|Function ''Okfy'' has too many statements \(42 '
       - path: internal/ingest/pipeline\.go$
         linters: [funlen]
-        text: "Function 'Run'"
+        text: 'Function ''Run'' is too long \(62 '
+      - path: internal/ingest/process\.go$
+        linters: [funlen, gocognit, gocyclo]
+        text: 'cognitive complexity 16 of func `\(\*Pipeline\)\.prepare`|cyclomatic complexity 15 of func `\(\*Pipeline\)\.prepare`|Function ''prepare'' is too long \(79 '
+      - path: internal/ingest/reindex_content\.go$
+        linters: [gocognit, gocyclo]
+        text: 'cognitive complexity 17 of func `\(\*Pipeline\)\.ReindexContent`|cyclomatic complexity 12 of func `\(\*Pipeline\)\.ReindexContent`'
+      - path: internal/ingest/watcher\.go$
+        linters: [gocognit]
+        text: 'cognitive complexity 19 of func `\(\*Watcher\)\.addTreeAndSweep`'
+      - path: internal/memory/read\.go$
+        linters: [gocyclo]
+        text: 'cyclomatic complexity 12 of func `scopeChunks`'
+      - path: internal/memory/related\.go$
+        linters: [gocyclo]
+        text: 'cyclomatic complexity 14 of func `\(\*Service\)\.Related`'
+      - path: internal/memory/service\.go$
+        linters: [gocyclo]
+        text: 'cyclomatic complexity 12 of func `\(\*Service\)\.ContextWithOptions`'
+      - path: internal/memory/write\.go$
+        linters: [funlen, gocognit, gocyclo]
+        text: 'cognitive complexity 16 of func `\(\*Service\)\.Remember`|cyclomatic complexity 15 of func `\(\*Service\)\.Remember`|Function ''Remember'' is too long \(69 '
+      - path: internal/search/graph\.go$
+        linters: [gocyclo]
+        text: 'cyclomatic complexity 12 of func `\(\*GraphRetriever\)\.neighborResult`'
+      - path: internal/search/hybrid\.go$
+        linters: [funlen, gocognit, gocyclo]
+        text: 'cognitive complexity 24 of func `Reindex`|cyclomatic complexity 16 of func `Reindex`|Function ''Reindex'' has too many statements \(46 '
+      - path: internal/search/similar\.go$
+        linters: [funlen, gocognit, gocyclo]
+        text: 'cognitive complexity 20 of func `Similar`|cyclomatic complexity 16 of func `Similar`|Function ''Similar'' is too long \(69 '
+      - path: internal/security/paths\.go$
+        linters: [gocyclo]
+        text: 'cyclomatic complexity 14 of func `ResolveWithin`'
       - path: internal/storage/documents\.go$
-        linters: [funlen]
-        text: "Function 'ListDocuments'"
+        linters: [funlen, gocyclo]
+        text: 'cyclomatic complexity 12 of func `ListDocuments`|Function ''ListDocuments'' has too many statements \(43 '
+      - path: internal/storage/documents\.go$
+        linters: [gocyclo]
+        text: 'cyclomatic complexity 12 of func `ListDocumentDigests`'
+      - path: internal/tui/model\.go$
+        linters: [gocyclo]
+        text: 'cyclomatic complexity 13 of func `\(Model\)\.handleKey`'
+      - path: internal/workspace/workspace\.go$
+        linters: [funlen, gocognit, gocyclo]
+        text: 'cognitive complexity 16 of func `Resolve`|cyclomatic complexity 13 of func `Resolve`|Function ''Resolve'' has too many statements \(47 '
 
   settings:
     govet:
@@ -147,6 +170,8 @@ linters:
         - "all"
         - "-ST1000"
         - "-U1000"
+    gocyclo:
+      min-complexity: 11
     gocognit:
       # Final rung of the 25 -> 20 -> 15 ladder; legacy sites are excluded one by one above.
       min-complexity: 15

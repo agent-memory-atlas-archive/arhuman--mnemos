@@ -121,7 +121,7 @@ func sessionSlug(id string) string {
 		if b.Len() == 8 {
 			break
 		}
-		if r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
+		if isSlugRune(r) {
 			_, _ = b.WriteRune(r)
 		}
 	}
@@ -130,6 +130,11 @@ func sessionSlug(id string) string {
 	}
 
 	return b.String()
+}
+
+// isSlugRune reports whether r is an ASCII letter, digit, '-' or '_'.
+func isSlugRune(r rune) bool {
+	return r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
 }
 
 // journalFrontmatter is the authored frontmatter of a journal entry. Field order
