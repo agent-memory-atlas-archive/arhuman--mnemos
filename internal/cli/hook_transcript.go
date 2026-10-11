@@ -84,7 +84,8 @@ type transcriptMessage struct {
 
 // messageContent is a message's content, decoded while the line is decoded:
 // Text holds the string form, Blocks the array form, and both stay empty for any
-// other shape.
+// other shape. Every scanned line pays this decode, even when no prompt is found;
+// decoding later instead would mean keeping raw lines, which pinned read buffers.
 type messageContent struct {
 	Text   string
 	Blocks []contentBlock
