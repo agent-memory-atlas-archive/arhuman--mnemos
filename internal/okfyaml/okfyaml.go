@@ -22,11 +22,13 @@ var ErrUnknownKey = errors.New("okfyaml: unknown frontmatter key")
 
 // Field is one top-level frontmatter key as an editor displays it. Value is the
 // scalar text, or the ", "-joined items of a sequence; it is empty for a nested
-// mapping (a shape v1 does not edit).
+// mapping (a shape v1 does not edit). IsNull marks a YAML null (empty, ~, null),
+// whose Value keeps the spelling as written.
 type Field struct {
 	Key    string
 	Value  string
 	IsList bool
+	IsNull bool
 }
 
 // Doc is a parsed OKF document: the raw frontmatter YAML, the node tree that
@@ -85,6 +87,7 @@ func (d Doc) Fields() []Field {
 		switch v.Kind {
 		case yaml.ScalarNode:
 			f.Value = v.Value
+			f.IsNull = v.Tag == "!!null"
 		case yaml.SequenceNode:
 			f.Value = strings.Join(seqValues(v), ", ")
 		default:

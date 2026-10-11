@@ -290,11 +290,17 @@ func parseEditable(content []byte) (okfyaml.Doc, error) {
 	return doc, nil
 }
 
-// fieldValue returns the trimmed value of the top-level key in doc, or "".
+// fieldSpace is the trim set of storage's promotedToSQL; the two must agree on
+// what an empty value is.
+const fieldSpace = " \t\n\v\f\r"
+
+// fieldValue returns the trimmed value of the top-level key in doc, or "" when
+// the key is absent or null. It reads a scalar the way the index reads it from
+// frontmatter JSON, so a disk check and a SQL filter agree on "unset".
 func fieldValue(doc okfyaml.Doc, key string) string {
 	for _, f := range doc.Fields() {
-		if f.Key == key {
-			return strings.TrimSpace(f.Value)
+		if f.Key == key && !f.IsNull {
+			return strings.Trim(f.Value, fieldSpace)
 		}
 	}
 

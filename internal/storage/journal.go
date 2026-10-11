@@ -35,7 +35,8 @@ type JournalDoc struct {
 // trimmed promoted_to value, "" when it is absent, null, blank, or the
 // frontmatter is empty or invalid (json_extract raises on invalid JSON, so the
 // CASE guards it). A non-string scalar reads back as its text. Pending means
-// this expression is "".
+// this expression is "". memory's on-disk check (fieldValue) applies the same
+// rule; TestJournalReviewStateAgreesOnDiskAndIndex holds the two together.
 const promotedToSQL = `TRIM(CASE WHEN json_valid(frontmatter_json)
 	THEN COALESCE(json_extract(frontmatter_json, '$.` + PromotedToKey + `'), '')
 	ELSE '' END, char(32, 9, 10, 11, 12, 13))`

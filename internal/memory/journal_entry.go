@@ -42,7 +42,8 @@ type JournalTurn struct {
 }
 
 // JournalWriteResult reports the entry's uri and whether the file was written.
-// Written is false when an already reviewed entry was left untouched.
+// Written is false when an already reviewed entry, or one whose frontmatter
+// cannot be read back, was left untouched.
 type JournalWriteResult struct {
 	URI     string `json:"uri"`
 	Written bool   `json:"written"`
@@ -102,13 +103,8 @@ func (s *Service) journalEntryReviewed(ctx context.Context, uri string) (bool, e
 	if err != nil || !ok {
 		return true, nil //nolint:nilerr // an unreadable entry is kept, never overwritten
 	}
-	for _, f := range doc.Fields() {
-		if f.Key == storage.PromotedToKey && strings.TrimSpace(f.Value) != "" {
-			return true, nil
-		}
-	}
 
-	return false, nil
+	return fieldValue(doc, storage.PromotedToKey) != "", nil
 }
 
 // journalEntryPath names the entry for a turn: journal/<date>/<session8>-<HHMMSS>.md,

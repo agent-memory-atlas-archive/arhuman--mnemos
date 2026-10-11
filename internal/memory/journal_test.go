@@ -198,6 +198,51 @@ func TestJournalPromoteRefusesStampOnDisk(t *testing.T) {
 	require.Equal(t, stamped, readTree(t, f.treeRoot, entry))
 }
 
+// TestJournalReviewStateAgreesOnDiskAndIndex pins the review-state contract
+// across its readers: an entry the SQL index lists as pending is one the
+// on-disk checks let promote and let hook stop rewrite, and a reviewed one is
+// refused by both, for every YAML spelling of an empty, null or set promoted_to.
+func TestJournalReviewStateAgreesOnDiskAndIndex(t *testing.T) {
+	cases := []struct {
+		name, value string
+		pending     bool
+	}{
+		{"bare key", "", true},
+		{"null", "null", true},
+		{"Null", "Null", true},
+		{"NULL", "NULL", true},
+		{"tilde", "~", true},
+		{"quoted empty", `""`, true},
+		{"quoted blanks", `" \t "`, true},
+		{"quoted nbsp", `" "`, false},
+		{"quoted null", `"null"`, false},
+		{"none", "none", false},
+		{"uri", "adr/0001-sqlite.md", false},
+		{"number", "0", false},
+		{"bool", "false", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t, true, false)
+			src := strings.Replace(journalEntry, "session_id: abc12345\n", "session_id: abc12345\npromoted_to: "+tc.value+"\n", 1)
+			entry := f.seed(t, "journal/state.md", src, "journal")
+			turn := journalTurnAt("outcome")
+			f.seed(t, "journal/2026-10-10/abcdef12-053142.md", src, "journal")
+
+			require.Equal(t, tc.pending, slices.Contains(pendingURIs(t, f.svc), entry), "index pending")
+			res, err := f.svc.WriteJournalEntry(context.Background(), turn)
+			require.NoError(t, err)
+			require.Equal(t, tc.pending, res.Written, "hook stop must agree with the index")
+			_, err = f.svc.PromoteJournal(context.Background(), memory.PromoteJournalInput{EntryURI: entry, Target: memory.PromoteNone})
+			if tc.pending {
+				require.NoError(t, err, "promote must agree the entry is pending")
+			} else {
+				require.ErrorIs(t, err, memory.ErrAlreadyPromoted, "promote must agree the entry is reviewed")
+			}
+		})
+	}
+}
+
 // TestJournalPromoteRefusesWhenWriteDisabled pins the allow_write gate: the
 // refusal fires before any lookup or write.
 func TestJournalPromoteRefusesWhenWriteDisabled(t *testing.T) {
