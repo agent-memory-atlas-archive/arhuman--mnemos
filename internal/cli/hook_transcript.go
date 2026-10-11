@@ -129,7 +129,8 @@ func readLastTurn(path, cwd string) (memory.JournalTurn, bool) {
 			}
 		}
 		if line.Type == "assistant" {
-			after = append(after, raw)
+			// raw aliases a read buffer; keeping it would pin every buffer of the turn.
+			after = append(after, bytes.Clone(raw))
 		}
 
 		return true
