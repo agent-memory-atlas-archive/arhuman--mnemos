@@ -397,22 +397,41 @@ func TestHookStopKeepsPromotedEntry(t *testing.T) {
 	require.Equal(t, "no pending journal entries\n", runCmd(t, "journal", "pending"))
 }
 
-// TestHookStopScanErrorDropsEntry reproduces P23: a transcript line past the
-// scanner cap must drop the entry, never journal the turn before it.
+// TestHookStopScanErrorDropsEntry reproduces P23: a line past the cap inside
+// the last turn must drop the entry, never journal a partial or earlier turn. A
+// long line before the last prompt is never read (P30), so that turn is kept.
 func TestHookStopScanErrorDropsEntry(t *testing.T) {
-	stopWorkspace(t)
-	transcript := writeTranscript(t,
-		userLine("2026-10-10T05:00:00Z", "first request"),
-		assistantLine(false, textBlock("first outcome")),
-		assistantLine(false, textBlock(strings.Repeat("x", 17<<20))),
-		userLine("2026-10-10T06:00:00Z", "second request"),
-		assistantLine(false, textBlock("second outcome")),
-	)
+	long := assistantLine(false, textBlock(strings.Repeat("x", 17<<20)))
 
-	out := runHook(t, stopPayload(t, transcript, false), "hook", "stop")
+	t.Run("inside the last turn", func(t *testing.T) {
+		stopWorkspace(t)
+		transcript := writeTranscript(t,
+			userLine("2026-10-10T05:00:00Z", "first request"),
+			assistantLine(false, textBlock("first outcome")),
+			userLine("2026-10-10T06:00:00Z", "second request"),
+			long,
+			assistantLine(false, textBlock("second outcome")),
+		)
 
-	require.Empty(t, out)
-	require.Empty(t, journalEntries(t))
+		require.Empty(t, runHook(t, stopPayload(t, transcript, false), "hook", "stop"))
+		require.Empty(t, journalEntries(t))
+	})
+
+	t.Run("before the last prompt", func(t *testing.T) {
+		stopWorkspace(t)
+		transcript := writeTranscript(t,
+			userLine("2026-10-10T05:00:00Z", "first request"),
+			long,
+			userLine("2026-10-10T06:00:00Z", "second request"),
+			assistantLine(false, textBlock("second outcome")),
+		)
+
+		require.Empty(t, runHook(t, stopPayload(t, transcript, false), "hook", "stop"))
+		require.Equal(t, []string{"journal/2026-10-10/abcdef12-060000.md"}, journalEntries(t))
+		body, err := os.ReadFile(kbPath("journal/2026-10-10/abcdef12-060000.md"))
+		require.NoError(t, err)
+		require.Contains(t, string(body), "## Outcome\n\nsecond outcome\n")
+	})
 }
 
 // TestHookStdinLimit pins that an oversized hook payload is ignored rather than

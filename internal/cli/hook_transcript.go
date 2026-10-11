@@ -1,8 +1,9 @@
 package cli
 
 import (
-	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -95,11 +96,13 @@ type toolInput struct {
 	NotebookPath string `json:"notebook_path"`
 }
 
-// readLastTurn parses the transcript at path and returns the last turn, or false
-// when the file is unreadable, a line exceeds transcriptMaxLine (the turn in
-// hand would be a stale one), or it holds no real user prompt. Malformed lines
-// and sidechain (subagent) lines are skipped. File paths are rendered relative
-// to cwd when they sit inside it.
+// readLastTurn returns the last turn of the transcript at path, or false when
+// the file is unreadable, holds no real user prompt, or a line from the last
+// prompt on exceeds transcriptMaxLine (the turn would be incomplete). It reads
+// backwards from EOF only as far as the last real prompt, so the cost is the
+// turn's size, not the session's. Malformed lines and sidechain (subagent)
+// lines are skipped. File paths are rendered relative to cwd when they sit
+// inside it.
 func readLastTurn(path, cwd string) (memory.JournalTurn, bool) {
 	f, err := os.Open(path) //nolint:gosec // the transcript path comes from the harness payload by design
 	if err != nil {
@@ -109,32 +112,100 @@ func readLastTurn(path, cwd string) (memory.JournalTurn, bool) {
 
 	var (
 		turn  memory.JournalTurn
+		after [][]byte
 		found bool
 	)
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), transcriptMaxLine)
-	for sc.Scan() {
+	err = scanLinesBackward(f, func(raw []byte) bool {
 		var line transcriptLine
-		if json.Unmarshal(sc.Bytes(), &line) != nil || line.IsSidechain {
-			continue
+		if json.Unmarshal(raw, &line) != nil || line.IsSidechain {
+			return true
 		}
-		text, blocks := decodeContent(line.Message.Content)
-		switch {
-		case line.Type == "user" && !line.IsMeta:
-			if prompt, ok := userPrompt(text, blocks); ok {
+		if line.Type == "user" && !line.IsMeta {
+			if prompt, ok := userPrompt(decodeContent(line.Message.Content)); ok {
 				turn = memory.JournalTurn{Request: prompt, At: parseTimestamp(line.Timestamp)}
 				found = true
+
+				return false
 			}
-		case line.Type == "assistant" && found:
-			addAssistant(&turn, blocks, cwd)
-		default:
 		}
-	}
-	if sc.Err() != nil || !found {
+		if line.Type == "assistant" {
+			after = append(after, raw)
+		}
+
+		return true
+	})
+	if err != nil || !found {
 		return memory.JournalTurn{}, false
+	}
+	for _, raw := range slices.Backward(after) {
+		var line transcriptLine
+		_ = json.Unmarshal(raw, &line)
+		_, blocks := decodeContent(line.Message.Content)
+		addAssistant(&turn, blocks, cwd)
 	}
 
 	return turn, true
+}
+
+// transcriptChunk is the smallest read scanLinesBackward makes.
+const transcriptChunk = 64 << 10
+
+// errTranscriptLine reports a transcript line longer than transcriptMaxLine.
+var errTranscriptLine = errors.New("transcript line too long")
+
+// scanLinesBackward calls fn with each line of f, last line first, until fn
+// returns false or the start of the file. A trailing "\r" is dropped, as
+// bufio.ScanLines does. A line longer than transcriptMaxLine stops the scan with
+// errTranscriptLine. Each read is at least as large as the partial line carried
+// over, so a long line costs O(length), not O(length squared); line slices are
+// never overwritten and stay valid after fn returns.
+func scanLinesBackward(f *os.File, fn func(line []byte) bool) error {
+	st, err := f.Stat()
+	if err != nil {
+		return err //nolint:wrapcheck // the caller only tests for failure
+	}
+	pos := st.Size()
+	var carry []byte
+	for pos > 0 {
+		n := min(max(int64(transcriptChunk), int64(len(carry))), pos)
+		pos -= n
+		chunk := make([]byte, n, n+int64(len(carry)))
+		if _, err = f.ReadAt(chunk, pos); err != nil {
+			return err //nolint:wrapcheck // the caller only tests for failure
+		}
+		var done bool
+		if carry, done, err = emitLines(append(chunk, carry...), fn); done || err != nil {
+			return err
+		}
+		if len(carry) > transcriptMaxLine {
+			return errTranscriptLine
+		}
+	}
+	if len(carry) > 0 {
+		fn(bytes.TrimSuffix(carry, []byte("\r")))
+	}
+
+	return nil
+}
+
+// emitLines calls fn with each newline-terminated line of buf, last first, and
+// returns the bytes before the first newline (a line still missing its start).
+// done is true when fn stopped the scan.
+func emitLines(buf []byte, fn func(line []byte) bool) (rest []byte, done bool, err error) {
+	for {
+		i := bytes.LastIndexByte(buf, '\n')
+		if i < 0 {
+			return buf, false, nil
+		}
+		line := buf[i+1:]
+		buf = buf[:i:i]
+		if len(line) > transcriptMaxLine {
+			return nil, true, errTranscriptLine
+		}
+		if len(line) > 0 && !fn(bytes.TrimSuffix(line, []byte("\r"))) {
+			return nil, true, nil
+		}
+	}
 }
 
 // addAssistant folds one assistant message into the turn: edited files are

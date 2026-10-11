@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"bufio"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -57,4 +61,75 @@ func TestCapTokens(t *testing.T) {
 	require.Less(t, len(out), len(big))
 	require.Contains(t, out, "truncated to ~10 tokens")
 	require.True(t, strings.HasSuffix(strings.TrimRight(out, "\n"), "tokens]_"))
+}
+
+// BenchmarkReadLastTurn reads the last turn of a long session transcript: 2000
+// turns of about 16 KiB each (32 MiB), the shape whose cost grows with the
+// session when the whole file is parsed on every Stop.
+func BenchmarkReadLastTurn(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "transcript.jsonl")
+	f, err := os.Create(path)
+	require.NoError(b, err)
+	w := bufio.NewWriter(f)
+	enc := json.NewEncoder(w)
+	pad := strings.Repeat("x", 16<<10)
+	for i := range 2000 {
+		require.NoError(b, enc.Encode(map[string]any{
+			"type": "user", "timestamp": "2026-10-10T05:00:00Z",
+			"message": map[string]any{"content": "request " + strings.Repeat("r", i%7)},
+		}))
+		require.NoError(b, enc.Encode(map[string]any{
+			"type":    "assistant",
+			"message": map[string]any{"content": []any{map[string]any{"type": "text", "text": pad}}},
+		}))
+	}
+	require.NoError(b, w.Flush())
+	require.NoError(b, f.Close())
+
+	b.ResetTimer()
+	for b.Loop() {
+		if _, ok := readLastTurn(path, ""); !ok {
+			b.Fatal("no turn read")
+		}
+	}
+}
+
+// TestScanLinesBackwardMatchesForwardSplit checks the backward scanner against
+// a forward split: lines crossing read boundaries, CRLF endings, blank lines,
+// an unterminated last line, the first line (left in the carry), and an early stop.
+func TestScanLinesBackwardMatchesForwardSplit(t *testing.T) {
+	lines := make([]string, 0, 300)
+	for i := range 300 {
+		lines = append(lines, strings.Repeat(string(rune('a'+i%26)), (i*977)%(3*transcriptChunk)))
+	}
+	lines[0], lines[7] = "first", "crlf\r"
+	content := strings.Join(lines, "\n") + "\n\nlast"
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+	var want []string
+	for l := range strings.SplitSeq(content, "\n") {
+		if l != "" {
+			want = append([]string{strings.TrimSuffix(l, "\r")}, want...)
+		}
+	}
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+
+	var got []string
+	require.NoError(t, scanLinesBackward(f, func(l []byte) bool {
+		got = append(got, string(l))
+
+		return true
+	}))
+	require.Equal(t, want, got)
+
+	got = nil
+	require.NoError(t, scanLinesBackward(f, func(l []byte) bool {
+		got = append(got, string(l))
+
+		return len(got) < 3
+	}))
+	require.Equal(t, want[:3], got)
 }
