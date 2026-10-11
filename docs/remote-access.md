@@ -71,7 +71,9 @@ command="/usr/local/bin/mnemos-ssh",restrict ssh-ed25519 AAAA... alice@laptop
 ```
 
 The hooks and CLI need more than `serve`, so the forced command is a small
-dispatcher. It allowlists the subcommand, rejects any client-supplied `--config` or
+dispatcher. It allowlists the subcommand, and the hook subcommands one by one (`hook
+stop` reads a transcript path from its payload, so it stays local; a new hook
+subcommand is denied until listed). It rejects any client-supplied `--config` or
 `--mnemos-dir` (so the client cannot pick another workspace), and pins the workspace
 itself:
 
@@ -86,8 +88,9 @@ set -- ${SSH_ORIGINAL_COMMAND:-}
 
 [ "${1:-}" = "mnemos" ] && shift
 
-case "${1:-}" in
-  serve|hook|search|task|ls|related|status) ;;
+case "${1:-} ${2:-}" in
+  "hook session-start"|"hook recall") ;;
+  serve\ *|search\ *|task\ *|ls\ *|related\ *|status\ *) ;;
   *) echo "mnemos-ssh: command not allowed" >&2; exit 1 ;;
 esac
 
