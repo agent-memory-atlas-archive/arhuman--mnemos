@@ -245,15 +245,17 @@ func addAssistant(t *memory.JournalTurn, blocks []contentBlock, cwd string) {
 }
 
 // userPrompt returns the prompt text of a user line that is a real prompt: a
-// non-empty string, or blocks with at least one text block and no tool_result
-// (a tool result travels as a user line but is not something the user typed).
+// non-empty string, or blocks with no tool_result (a tool result travels as a
+// user line but is not something the user typed) and at least one text or
+// attachment block. An attachment-only prompt, such as a pasted image, reads as
+// its block types in brackets, so the turn still starts there.
 func userPrompt(text string, blocks []contentBlock) (string, bool) {
 	if blocks == nil {
 		text = strings.TrimSpace(text)
 
 		return text, text != ""
 	}
-	var texts []string
+	var texts, attached []string
 	for _, b := range blocks {
 		switch b.Type {
 		case "tool_result":
@@ -262,8 +264,13 @@ func userPrompt(text string, blocks []contentBlock) (string, bool) {
 			if t := strings.TrimSpace(b.Text); t != "" {
 				texts = append(texts, t)
 			}
+		case "":
 		default:
+			attached = append(attached, "["+b.Type+"]")
 		}
+	}
+	if len(texts) == 0 {
+		texts = attached
 	}
 
 	return strings.Join(texts, "\n\n"), len(texts) > 0

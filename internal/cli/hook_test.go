@@ -293,6 +293,39 @@ func TestHookStopCapturesOnlyLastTurn(t *testing.T) {
 	}
 }
 
+// TestHookStopImageOnlyPromptStartsTurn pins the turn boundary on a prompt that
+// holds only an image: the entry covers that turn alone, not the earlier text
+// prompt's turn as well.
+func TestHookStopImageOnlyPromptStartsTurn(t *testing.T) {
+	stopWorkspace(t)
+	imageOnly, _ := json.Marshal(map[string]any{
+		"type": "user", "timestamp": "2026-10-10T06:00:00Z",
+		"message": map[string]any{"role": "user", "content": []any{
+			map[string]any{"type": "image", "source": map[string]any{"type": "base64", "data": "AAAA"}},
+		}},
+	})
+	transcript := writeTranscript(t,
+		userLine("2026-10-10T05:00:00Z", "first request"),
+		assistantLine(false, textBlock("first outcome"), editBlock("Edit", "file_path", stopCwd+"/first.go")),
+		string(imageOnly),
+		assistantLine(false, textBlock("image outcome")),
+	)
+
+	out := runHook(t, stopPayload(t, transcript, false), "hook", "stop")
+
+	require.Empty(t, out)
+	entries := journalEntries(t)
+	require.Equal(t, []string{"journal/2026-10-10/abcdef12-060000.md"}, entries)
+	raw, err := os.ReadFile(kbPath(entries[0]))
+	require.NoError(t, err)
+	body := string(raw)
+	require.Contains(t, body, "## Request\n\n[image]\n")
+	require.Contains(t, body, "image outcome")
+	for _, absent := range []string{"first request", "first outcome", "first.go"} {
+		require.NotContains(t, body, absent)
+	}
+}
+
 func TestHookStopRerunIsIdempotent(t *testing.T) {
 	stopWorkspace(t)
 	transcript := writeTranscript(t,
