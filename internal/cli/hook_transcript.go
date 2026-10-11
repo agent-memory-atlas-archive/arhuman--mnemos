@@ -125,37 +125,8 @@ type toolInput struct {
 // lines are skipped. File paths are rendered relative to cwd when they sit
 // inside it.
 func readLastTurn(path, cwd string) (memory.JournalTurn, bool) {
-	f, err := os.Open(path) //nolint:gosec // the transcript path comes from the harness payload by design
-	if err != nil {
-		return memory.JournalTurn{}, false
-	}
-	defer func() { _ = f.Close() }()
-
-	var (
-		turn    memory.JournalTurn
-		replies [][]contentBlock
-		found   bool
-	)
-	err = scanLinesBackward(f, func(raw []byte) bool {
-		var line transcriptLine
-		if json.Unmarshal(raw, &line) != nil || line.IsSidechain {
-			return true
-		}
-		if line.Type == "user" && !line.IsMeta {
-			if prompt, ok := userPrompt(line.Message.Content.Text, line.Message.Content.Blocks); ok {
-				turn = memory.JournalTurn{Request: prompt, At: parseTimestamp(line.Timestamp)}
-				found = true
-
-				return false
-			}
-		}
-		if line.Type == "assistant" {
-			replies = append(replies, line.Message.Content.Blocks)
-		}
-
-		return true
-	})
-	if err != nil || !found {
+	turn, replies, ok := scanLastTurn(path)
+	if !ok {
 		return memory.JournalTurn{}, false
 	}
 	for _, blocks := range slices.Backward(replies) {
@@ -163,6 +134,84 @@ func readLastTurn(path, cwd string) (memory.JournalTurn, bool) {
 	}
 
 	return turn, true
+}
+
+// scanLastTurn scans the transcript at path backwards to the last real prompt
+// and returns the turn holding that prompt, plus the turn's assistant messages,
+// last first, reduced by keptBlocks to what addAssistant reads. Replaying them
+// forward builds the same turn as replaying every block, but the retained text
+// is the final outcome only, not the whole turn. ok is false as readLastTurn
+// documents.
+func scanLastTurn(path string) (turn memory.JournalTurn, replies [][]contentBlock, ok bool) {
+	f, err := os.Open(path) //nolint:gosec // the transcript path comes from the harness payload by design
+	if err != nil {
+		return memory.JournalTurn{}, nil, false
+	}
+	defer func() { _ = f.Close() }()
+
+	var hasOutcome bool
+	err = scanLinesBackward(f, func(raw []byte) bool {
+		var line transcriptLine
+		if json.Unmarshal(raw, &line) != nil || line.IsSidechain {
+			return true
+		}
+		if t, isPrompt := promptTurn(line); isPrompt {
+			turn, ok = t, true
+
+			return false
+		}
+		if line.Type == "assistant" {
+			var kept []contentBlock
+			kept, hasOutcome = keptBlocks(line.Message.Content.Blocks, hasOutcome)
+			if len(kept) > 0 {
+				replies = append(replies, kept)
+			}
+		}
+
+		return true
+	})
+	if err != nil || !ok {
+		return memory.JournalTurn{}, nil, false
+	}
+
+	return turn, replies, true
+}
+
+// promptTurn returns the turn a transcript line starts, or false when the line
+// is not a real user prompt (see userPrompt).
+func promptTurn(line transcriptLine) (memory.JournalTurn, bool) {
+	if line.Type != "user" || line.IsMeta {
+		return memory.JournalTurn{}, false
+	}
+	prompt, ok := userPrompt(line.Message.Content.Text, line.Message.Content.Blocks)
+	if !ok {
+		return memory.JournalTurn{}, false
+	}
+
+	return memory.JournalTurn{Request: prompt, At: parseTimestamp(line.Timestamp)}, true
+}
+
+// keptBlocks returns the blocks of one assistant message that addAssistant
+// still needs, given whether a later message (scanned earlier) already set the
+// outcome: tool_use blocks that touch a file, with their text cleared, and the
+// non-blank text blocks only while no later message has text. hasOutcome
+// reports whether the outcome is now set.
+func keptBlocks(blocks []contentBlock, hasOutcome bool) ([]contentBlock, bool) {
+	var kept []contentBlock
+	var texts bool
+	for _, b := range blocks {
+		switch {
+		case b.Type == "text" && !hasOutcome && strings.TrimSpace(b.Text) != "":
+			kept = append(kept, b)
+			texts = true
+		case b.Type == "tool_use" && touchedPath(b, "") != "":
+			b.Text = ""
+			kept = append(kept, b)
+		default:
+		}
+	}
+
+	return kept, hasOutcome || texts
 }
 
 // transcriptChunk is the smallest read scanLinesBackward makes.
@@ -248,7 +297,9 @@ func addAssistant(t *memory.JournalTurn, blocks []contentBlock, cwd string) {
 // non-empty string, or blocks with no tool_result (a tool result travels as a
 // user line but is not something the user typed) and at least one text or
 // attachment block. An attachment-only prompt, such as a pasted image, reads as
-// its block types in brackets, so the turn still starts there.
+// its block types in brackets, so the turn still starts there; a type that is
+// not a short plain identifier (see attachmentLabel) reads as [attachment], so
+// a crafted type cannot inject journal sections.
 func userPrompt(text string, blocks []contentBlock) (string, bool) {
 	if blocks == nil {
 		text = strings.TrimSpace(text)
@@ -266,7 +317,7 @@ func userPrompt(text string, blocks []contentBlock) (string, bool) {
 			}
 		case "":
 		default:
-			attached = append(attached, "["+b.Type+"]")
+			attached = append(attached, attachmentLabel(b.Type))
 		}
 	}
 	if len(texts) == 0 {
@@ -274,6 +325,19 @@ func userPrompt(text string, blocks []contentBlock) (string, bool) {
 	}
 
 	return strings.Join(texts, "\n\n"), len(texts) > 0
+}
+
+// attachmentLabel renders an attachment block type as "[type]" when it is 1 to
+// 32 lowercase ASCII letters, digits or underscores, and as "[attachment]"
+// otherwise.
+func attachmentLabel(typ string) string {
+	if len(typ) > 32 || strings.ContainsFunc(typ, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_'
+	}) {
+		return "[attachment]"
+	}
+
+	return "[" + typ + "]"
 }
 
 // touchedPath returns the file a tool_use block edited, relative to cwd when

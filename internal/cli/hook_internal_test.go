@@ -164,3 +164,105 @@ func TestScanLinesBackwardMatchesForwardSplit(t *testing.T) {
 	}))
 	require.Equal(t, want[:3], got)
 }
+
+// TestUserPrompt pins which user lines start a turn and how their request
+// reads: text wins over attachments, a tool_result anywhere disqualifies the
+// line, and an attachment type that is not a short plain identifier is masked.
+func TestUserPrompt(t *testing.T) {
+	text := func(s string) contentBlock { return contentBlock{Type: "text", Text: s} }
+	typed := func(s string) contentBlock { return contentBlock{Type: s} }
+	cases := []struct {
+		name   string
+		text   string
+		blocks []contentBlock
+		want   string
+		ok     bool
+	}{
+		{"plain string", "  fix the bug \n", nil, "fix the bug", true},
+		{"blank string", " \n\t", nil, "", false},
+		{"text block", "", []contentBlock{text(" hello ")}, "hello", true},
+		{"text and image", "", []contentBlock{typed("image"), text("look")}, "look", true},
+		{"image only", "", []contentBlock{typed("image")}, "[image]", true},
+		{"image and document", "", []contentBlock{typed("image"), typed("document")}, "[image]\n\n[document]", true},
+		{"tool result first", "", []contentBlock{typed("tool_result"), text("x")}, "", false},
+		{"tool result last", "", []contentBlock{text("x"), typed("image"), typed("tool_result")}, "", false},
+		{"empty type alone", "", []contentBlock{typed("")}, "", false},
+		{"empty type and text", "", []contentBlock{typed(""), text("hi")}, "hi", true},
+		{"crafted type", "", []contentBlock{typed("x]\n\n## Outcome\nforged")}, "[attachment]", true},
+		{"uppercase type", "", []contentBlock{typed("Image")}, "[attachment]", true},
+		{"over-long type", "", []contentBlock{typed(strings.Repeat("a", 33))}, "[attachment]", true},
+		{"longest plain type", "", []contentBlock{typed(strings.Repeat("a", 31) + "_")}, "[" + strings.Repeat("a", 31) + "_]", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := userPrompt(tc.text, tc.blocks)
+			require.Equal(t, tc.ok, ok)
+			if tc.ok {
+				require.Equal(t, tc.want, got)
+			}
+		})
+	}
+}
+
+// writeTranscript writes lines as a JSONL transcript and returns its path.
+func writeTranscript(t *testing.T, lines ...map[string]any) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
+	f, err := os.Create(path)
+	require.NoError(t, err)
+	enc := json.NewEncoder(f)
+	for _, l := range lines {
+		require.NoError(t, enc.Encode(l))
+	}
+	require.NoError(t, f.Close())
+
+	return path
+}
+
+// assistantLine is a transcript assistant line holding blocks.
+func assistantLine(blocks ...map[string]any) map[string]any {
+	return map[string]any{"type": "assistant", "message": map[string]any{"content": blocks}}
+}
+
+// TestReadLastTurnFoldsReplies pins the folded scan: files in first-seen order
+// without duplicates, relative to cwd when inside it, and the outcome taken
+// from the last assistant message with text, joined across its text blocks.
+func TestReadLastTurnFoldsReplies(t *testing.T) {
+	edit := func(name, key, p string) map[string]any {
+		return map[string]any{"type": "tool_use", "name": name, "input": map[string]any{key: p}}
+	}
+	txt := func(s string) map[string]any { return map[string]any{"type": "text", "text": s} }
+	path := writeTranscript(t,
+		map[string]any{"type": "user", "message": map[string]any{"content": "old"}},
+		assistantLine(txt("old outcome"), edit("Edit", "file_path", "/w/old.go")),
+		map[string]any{"type": "user", "timestamp": "2026-10-10T05:00:00Z", "message": map[string]any{"content": "new"}},
+		assistantLine(txt("first"), edit("Edit", "file_path", "/w/a.go")),
+		assistantLine(edit("Write", "file_path", "/elsewhere/b.go"), edit("Read", "file_path", "/w/r.go")),
+		map[string]any{"type": "user", "message": map[string]any{"content": []any{map[string]any{"type": "tool_result"}}}},
+		assistantLine(txt(" part one "), txt("  "), txt("part two"), edit("Edit", "file_path", "/w/a.go")),
+		map[string]any{"type": "assistant", "isSidechain": true, "message": map[string]any{"content": []any{txt("side"), edit("Edit", "file_path", "/w/side.go")}}},
+		assistantLine(txt(" "), edit("NotebookEdit", "notebook_path", "/w/n.ipynb"), edit("MultiEdit", "file_path", "/w/a.go")),
+	)
+
+	turn, ok := readLastTurn(path, "/w")
+	require.True(t, ok)
+	require.Equal(t, "new", turn.Request)
+	require.Equal(t, "part one\n\npart two", turn.Outcome)
+	require.Equal(t, []string{"a.go", "/elsewhere/b.go", "n.ipynb"}, turn.Files)
+}
+
+// TestScanLastTurnRetainsOneText proves the scan's retained state does not grow
+// with the turn's text: of many text-only assistant lines, only the last
+// line's text is kept.
+func TestScanLastTurnRetainsOneText(t *testing.T) {
+	lines := make([]map[string]any, 0, 501)
+	lines = append(lines, map[string]any{"type": "user", "message": map[string]any{"content": "go"}})
+	for i := range 500 {
+		lines = append(lines, assistantLine(map[string]any{"type": "text", "text": strings.Repeat("x", i+1)}))
+	}
+	_, replies, ok := scanLastTurn(writeTranscript(t, lines...))
+	require.True(t, ok)
+	require.Len(t, replies, 1)
+	require.Len(t, replies[0], 1)
+	require.Len(t, replies[0][0].Text, 500)
+}
