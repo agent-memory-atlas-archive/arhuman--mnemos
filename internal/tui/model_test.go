@@ -236,7 +236,7 @@ func TestMetadataTagsCommitSplitsItems(t *testing.T) {
 	require.Equal(t, []string{"auth", "cookie", "fix"}, m.fields[4].Items)
 	edits := m.pendingEdits()
 	require.Len(t, edits, 1)
-	require.True(t, edits[0].List)
+	require.Equal(t, memory.EditList, edits[0].Mode)
 	require.Equal(t, []string{"auth", "cookie", "fix"}, edits[0].Items)
 }
 

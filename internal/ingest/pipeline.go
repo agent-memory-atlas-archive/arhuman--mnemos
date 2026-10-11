@@ -83,7 +83,6 @@ const defaultMaxFileBytes int64 = 4 << 20 // 4 MiB
 type Pipeline struct {
 	db           *sql.DB
 	logger       *slog.Logger
-	tc           chunk.WordEstimator
 	maxFileBytes int64
 	encodings    encodingRules
 	// scanner screens file content for credentials before it is indexed. Nil
@@ -137,7 +136,7 @@ func WithEncodings(rules []EncodingRule) Option {
 // New builds a Pipeline over db using the default offline token estimator and
 // the default file-size cap. Pass WithMaxFileBytes to override the cap.
 func New(db *sql.DB, logger *slog.Logger, opts ...Option) *Pipeline {
-	p := &Pipeline{db: db, logger: logger, tc: chunk.WordEstimator{}, maxFileBytes: defaultMaxFileBytes}
+	p := &Pipeline{db: db, logger: logger, maxFileBytes: defaultMaxFileBytes}
 	for _, opt := range opts {
 		opt(p)
 	}

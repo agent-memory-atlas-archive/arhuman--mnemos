@@ -50,7 +50,7 @@ func TestEditFrontmatterPatchesAndReindexes(t *testing.T) {
 		Fields: []memory.FieldEdit{
 			{Key: "status", Value: "in_progress"},
 			{Key: "title", Value: "Ship the other thing"},
-			{Key: "tags", Items: []string{"auth", "cookie"}, List: true},
+			{Key: "tags", Items: []string{"auth", "cookie"}, Mode: memory.EditList},
 		},
 	})
 	require.NoError(t, err)
@@ -261,7 +261,7 @@ func TestEditFrontmatterInsertAddsAbsentKey(t *testing.T) {
 
 	_, err := f.svc.EditFrontmatter(context.Background(), memory.EditFrontmatterInput{
 		URI:    uri,
-		Fields: []memory.FieldEdit{{Key: "owner", Value: "a: b", Insert: true}},
+		Fields: []memory.FieldEdit{{Key: "owner", Value: "a: b", Mode: memory.EditInsert}},
 	})
 	require.NoError(t, err)
 

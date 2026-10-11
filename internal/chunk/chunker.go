@@ -31,11 +31,12 @@ func ConfigFrom(targetTokens, overlapTokens int) Config {
 // token budget. StructureOnly documents (e.g. OKF index.md) yield no chunks.
 // Deterministic: the same ParsedDoc always yields identical chunks, which
 // keeps re-ingest idempotent and golden tests stable.
-func Dispatch(doc model.ParsedDoc, cfg Config, tc WordEstimator) []model.Chunk {
+func Dispatch(doc model.ParsedDoc, cfg Config) []model.Chunk {
 	if doc.StructureOnly {
 		return nil
 	}
 
+	var tc WordEstimator
 	meta := chunkMetadata(doc)
 	tags := joinTags(doc)
 

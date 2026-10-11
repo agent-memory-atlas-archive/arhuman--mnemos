@@ -23,24 +23,35 @@ var ErrReindexAfterWrite = errors.New("edit: write ok, reindex failed")
 // malformed, or using a shape whose source bytes cannot be patched in place).
 var ErrNotEditable = errors.New("edit: frontmatter is not editable in place")
 
-// ErrFieldSet reports an InsertOnly edit whose key already holds a non-empty
-// value in the file being edited.
+// ErrFieldSet reports an EditInsertOnly edit whose key already holds a
+// non-empty value in the file being edited.
 var ErrFieldSet = errors.New("edit: field already set")
 
-// FieldEdit is one frontmatter key to rewrite. Items applies when List is set
-// (the whole list is retyped); otherwise Value replaces the scalar. A key the
-// frontmatter does not define is refused unless Insert is set on a scalar edit,
-// in which case it is added as the last frontmatter line (okfyaml.SetScalar).
-// Insert has no effect on a List edit. InsertOnly implies Insert and refuses,
-// with ErrFieldSet, a key whose current value on disk is non-empty: the check
-// runs against the bytes the edit rewrites, never against the index.
+// EditMode selects how a FieldEdit rewrites its key.
+type EditMode int
+
+const (
+	// EditPatch replaces the scalar Value of a key the frontmatter already
+	// defines; a missing key is refused.
+	EditPatch EditMode = iota
+	// EditInsert sets the scalar Value, adding the key as the last frontmatter
+	// line when it is missing (okfyaml.SetScalar).
+	EditInsert
+	// EditInsertOnly is EditInsert that refuses, with ErrFieldSet, a key whose
+	// current value is non-empty: the check runs against the bytes the edit
+	// rewrites, never against the index.
+	EditInsertOnly
+	// EditList retypes the whole list from Items.
+	EditList
+)
+
+// FieldEdit is one frontmatter key to rewrite: Value for a scalar mode, Items
+// for EditList. The zero Mode is EditPatch.
 type FieldEdit struct {
-	Key        string
-	Value      string
-	Items      []string
-	List       bool
-	Insert     bool
-	InsertOnly bool
+	Key   string
+	Value string
+	Items []string
+	Mode  EditMode
 }
 
 // EditFrontmatterInput is a single atomic edit of the document at URI: any
@@ -228,15 +239,15 @@ func applyEdits(content []byte, in EditFrontmatterInput) ([]byte, error) {
 		if !ok {
 			return nil, ErrNotEditable
 		}
-		if f.InsertOnly {
+		if f.Mode == EditInsertOnly {
 			if v := fieldValue(doc, f.Key); v != "" {
 				return nil, fmt.Errorf("%w: %s is %q", ErrFieldSet, f.Key, v)
 			}
 		}
-		switch {
-		case f.List:
+		switch f.Mode {
+		case EditList:
 			content, err = doc.PatchTags(f.Key, f.Items)
-		case f.Insert, f.InsertOnly:
+		case EditInsert, EditInsertOnly:
 			content, err = doc.SetScalar(f.Key, f.Value)
 		default:
 			content, err = doc.PatchScalar(f.Key, f.Value)

@@ -128,7 +128,7 @@ func (s *Service) PromoteJournal(ctx context.Context, in PromoteJournalInput) (P
 
 	_, err = s.EditFrontmatter(ctx, EditFrontmatterInput{
 		URI:    entry.URI,
-		Fields: []FieldEdit{{Key: storage.PromotedToKey, Value: target, InsertOnly: true}},
+		Fields: []FieldEdit{{Key: storage.PromotedToKey, Value: target, Mode: EditInsertOnly}},
 	})
 	if errors.Is(err, ErrFieldSet) {
 		return PromoteJournalResult{EntryURI: entry.URI}, fmt.Errorf("%w: %q on disk: %w", ErrAlreadyPromoted, entry.URI, err)

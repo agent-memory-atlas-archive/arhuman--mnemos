@@ -53,11 +53,10 @@ func BenchmarkDispatch(b *testing.B) {
 	for _, tc := range cases {
 		b.Run(tc.name, func(b *testing.B) {
 			doc := parseFixture(b, tc.file)
-			tokenizer := chunk.WordEstimator{}
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_ = chunk.Dispatch(doc, benchCfg, tokenizer)
+				_ = chunk.Dispatch(doc, benchCfg)
 			}
 		})
 	}
@@ -69,11 +68,10 @@ func BenchmarkDispatch(b *testing.B) {
 // It is the regression guard for the windowing hot path.
 func BenchmarkDispatchLarge(b *testing.B) {
 	doc := parseLargeMarkdown(b, 40, 60) // 40 sections of 60 lines each
-	tokenizer := chunk.WordEstimator{}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = chunk.Dispatch(doc, benchCfg, tokenizer)
+		_ = chunk.Dispatch(doc, benchCfg)
 	}
 }
 

@@ -59,12 +59,11 @@ func (m Model) pendingEdits() []memory.FieldEdit {
 		if !f.changed {
 			continue
 		}
-		edits = append(edits, memory.FieldEdit{
-			Key:   f.Key,
-			Value: f.Value,
-			Items: f.Items,
-			List:  f.Schema.Kind == okfschema.KindTags,
-		})
+		edit := memory.FieldEdit{Key: f.Key, Value: f.Value, Items: f.Items}
+		if f.Schema.Kind == okfschema.KindTags {
+			edit.Mode = memory.EditList
+		}
+		edits = append(edits, edit)
 	}
 
 	return edits

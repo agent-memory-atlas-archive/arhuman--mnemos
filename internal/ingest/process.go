@@ -144,7 +144,7 @@ func (p *Pipeline) prepare(ctx context.Context, f scanned, opts Options) (result
 	}
 
 	docID := documentID(collection, f.uri)
-	chunks := assignIDs(docID, chunk.Dispatch(parsed, opts.Chunking, p.tc))
+	chunks := assignIDs(docID, chunk.Dispatch(parsed, opts.Chunking))
 
 	modifiedAt := modTime
 	if parsed.ModifiedAt != "" {

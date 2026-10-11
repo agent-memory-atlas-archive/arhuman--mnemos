@@ -56,7 +56,7 @@ func TestChunkersGolden(t *testing.T) {
 			parsed, err := parse.For(path).Parse(context.Background(), src)
 			require.NoError(t, err)
 
-			chunks := chunk.Dispatch(parsed, cfg, chunk.WordEstimator{})
+			chunks := chunk.Dispatch(parsed, cfg)
 
 			projected := make([]goldenChunk, 0, len(chunks))
 			for _, c := range chunks {
