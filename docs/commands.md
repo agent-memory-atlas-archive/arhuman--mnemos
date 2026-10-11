@@ -65,7 +65,7 @@ drive that review; `promote` writes and requires `[mcp] allow_write = true`, and
 |---|---|
 | `mnemos journal pending [--limit N] [--json]` | List journal entries not yet reviewed (no `promoted_to`), oldest first |
 | `mnemos journal promote <entry-uri> <target>` | Stamp `promoted_to` on a journal entry: the uri of the kb document now holding its content (write it first), or `none` when nothing was worth keeping. An entry already stamped is refused |
-| `mnemos journal prune --older-than DURATION [--apply] [--json]` | Delete reviewed journal entries captured more than DURATION ago (a Go duration such as `12h`, or days such as `30d`). Dry run by default: it lists what would go. `--apply` deletes and requires `[mcp] allow_delete = true`. Only entries already stamped with `promoted_to` are eligible; mark unreviewed ones with `mnemos journal promote` first. A dated directory left empty is removed with its `log.md` |
+| `mnemos journal prune --older-than DURATION [--apply] [--json]` | Delete reviewed journal entries older than DURATION (a Go duration such as `12h`, or days such as `30d`). Age is measured from `captured_at`, or from the file's last modification when the entry has none; an entry with neither is kept and counted. Dry run by default: it lists what would go. `--apply` deletes and requires `[mcp] allow_delete = true`. Only entries already stamped with `promoted_to` are eligible; mark unreviewed ones with `mnemos journal promote` first. A dated directory left holding only its `log.md` is removed with it |
 
 ## Maintenance and diagnosis
 
@@ -89,8 +89,9 @@ drive that review; `promote` writes and requires `[mcp] allow_write = true`, and
 | `mnemos hook recall [--limit N] [--max-tokens N]` | Claude Code `UserPromptSubmit` hook: inject cited recall (defaults: 3 results, 600 tokens) |
 | `mnemos hook stop` | Claude Code `Stop` hook: write one journal entry for the turn that just ended (request, files touched, final assistant text) under `journal/<date>/`. Requires `[mcp] allow_write = true` |
 
-All hook subcommands read the hook JSON from stdin and stay silent (exit 0, no
-output) when the project has no mnemos workspace or nothing relevant to do.
+All hook subcommands stay silent (exit 0, no output) when the project has no
+mnemos workspace or nothing relevant to do. `recall` and `stop` read the hook
+JSON from stdin and ignore a payload over 1 MiB the same way.
 `session-start` and `recall` inject scoped markdown on stdout. `stop` prints
 nothing: it reads the transcript named in the payload and writes through the same
 path as `mnemos.remember`, so the entry is secret-scanned and dropped (not

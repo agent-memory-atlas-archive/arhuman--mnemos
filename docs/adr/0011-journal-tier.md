@@ -146,6 +146,14 @@ adding one. That update never drops review state: an entry already carrying a
 non-empty `promoted_to` (null, `~` and blank count as empty, as in the pending
 list), or one whose frontmatter cannot be read back, is left untouched.
 
+These guarantees hold for writes that run one after another. Nothing serializes
+concurrent writers to the same entry: `hook stop` and `journal_promote` run in
+different processes, and each reads, checks, then rewrites the file. A promote
+that lands between a Stop's check and its write is overwritten, and two promotes
+racing on one entry can both succeed, the second stamp replacing the first. The
+window is short and a Stop rewrites only the turn that just ended, which is rarely
+the one under review, so this is accepted rather than locked.
+
 ## Consequences
 
 **Two tiers mean two places to look, and that cost is real.** A user who
