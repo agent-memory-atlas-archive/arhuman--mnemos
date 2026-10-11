@@ -7,7 +7,7 @@ import (
 )
 
 func TestWordEstimatorCount(t *testing.T) {
-	tc := WordEstimator{}
+	tc := wordEstimator{}
 	cases := []struct {
 		name string
 		in   string

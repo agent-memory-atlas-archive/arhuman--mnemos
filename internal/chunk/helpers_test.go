@@ -45,7 +45,7 @@ func TestWholeOrWindowsSplitOversized(t *testing.T) {
 	sec := model.Section{Content: content, StartLine: 1, EndLine: 4}
 	cfg := Config{TargetTokens: 5, OverlapTokens: 0}
 
-	windows := wholeOrWindows(sec, WordEstimator{}, cfg)
+	windows := wholeOrWindows(sec, wordEstimator{}, cfg)
 	require.Greater(t, len(windows), 1, "oversized section must produce multiple windows")
 	for _, w := range windows {
 		require.NotEmpty(t, w.content)
@@ -61,7 +61,7 @@ func TestWholeOrWindowsFitsInBudget(t *testing.T) {
 	sec := model.Section{Content: content, StartLine: 3, EndLine: 3}
 	cfg := Config{TargetTokens: 50, OverlapTokens: 0}
 
-	windows := wholeOrWindows(sec, WordEstimator{}, cfg)
+	windows := wholeOrWindows(sec, wordEstimator{}, cfg)
 	require.Len(t, windows, 1)
 	require.Equal(t, content, windows[0].content)
 	require.Equal(t, 3, windows[0].startLine)

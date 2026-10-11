@@ -36,7 +36,7 @@ func Dispatch(doc model.ParsedDoc, cfg Config) []model.Chunk {
 		return nil
 	}
 
-	var tc WordEstimator
+	var tc wordEstimator
 	meta := chunkMetadata(doc)
 	tags := joinTags(doc)
 
@@ -74,7 +74,7 @@ type window struct {
 // with overlap carry-over. It is the shared split body for every chunker family:
 // they differ only in how upstream parsing carved the sections, not in how an
 // oversized section is windowed.
-func wholeOrWindows(sec model.Section, tc WordEstimator, cfg Config) []window {
+func wholeOrWindows(sec model.Section, tc wordEstimator, cfg Config) []window {
 	if cfg.TargetTokens <= 0 || tc.Count(sec.Content) <= cfg.TargetTokens {
 		return []window{{content: sec.Content, startLine: sec.StartLine, endLine: sec.EndLine}}
 	}
@@ -86,7 +86,7 @@ func wholeOrWindows(sec model.Section, tc WordEstimator, cfg Config) []window {
 // of carry-over, anchoring each window to its absolute 1-based line range
 // (firstLine corresponds to lines[0]). The overlap is expressed in tokens but
 // applied by rewinding whole lines so ranges stay exact.
-func windowByTokens(lines []string, firstLine int, tc WordEstimator, target, overlap int) []window {
+func windowByTokens(lines []string, firstLine int, tc wordEstimator, target, overlap int) []window {
 	var out []window
 	n := len(lines)
 	i := 0
