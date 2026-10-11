@@ -79,7 +79,28 @@ type transcriptLine struct {
 
 // transcriptMessage carries a line's content: a string or an array of blocks.
 type transcriptMessage struct {
-	Content json.RawMessage `json:"content"`
+	Content messageContent `json:"content"`
+}
+
+// messageContent is a message's content, decoded while the line is decoded:
+// Text holds the string form, Blocks the array form, and both stay empty for any
+// other shape.
+type messageContent struct {
+	Text   string
+	Blocks []contentBlock
+}
+
+// UnmarshalJSON decodes the string or the array form. Content of another shape,
+// or blocks of an unexpected type, leave c empty instead of failing the line.
+func (c *messageContent) UnmarshalJSON(raw []byte) error {
+	if s := bytes.TrimLeft(raw, " \t\r\n"); len(s) > 0 && s[0] == '"' {
+		return json.Unmarshal(raw, &c.Text) //nolint:wrapcheck // the caller skips a line that fails to decode
+	}
+	if json.Unmarshal(raw, &c.Blocks) != nil {
+		c.Blocks = nil
+	}
+
+	return nil
 }
 
 // contentBlock is one element of a message's content array.
@@ -111,9 +132,9 @@ func readLastTurn(path, cwd string) (memory.JournalTurn, bool) {
 	defer func() { _ = f.Close() }()
 
 	var (
-		turn  memory.JournalTurn
-		after [][]byte
-		found bool
+		turn    memory.JournalTurn
+		replies [][]contentBlock
+		found   bool
 	)
 	err = scanLinesBackward(f, func(raw []byte) bool {
 		var line transcriptLine
@@ -121,7 +142,7 @@ func readLastTurn(path, cwd string) (memory.JournalTurn, bool) {
 			return true
 		}
 		if line.Type == "user" && !line.IsMeta {
-			if prompt, ok := userPrompt(decodeContent(line.Message.Content)); ok {
+			if prompt, ok := userPrompt(line.Message.Content.Text, line.Message.Content.Blocks); ok {
 				turn = memory.JournalTurn{Request: prompt, At: parseTimestamp(line.Timestamp)}
 				found = true
 
@@ -129,8 +150,7 @@ func readLastTurn(path, cwd string) (memory.JournalTurn, bool) {
 			}
 		}
 		if line.Type == "assistant" {
-			// raw aliases a read buffer; keeping it would pin every buffer of the turn.
-			after = append(after, bytes.Clone(raw))
+			replies = append(replies, line.Message.Content.Blocks)
 		}
 
 		return true
@@ -138,10 +158,7 @@ func readLastTurn(path, cwd string) (memory.JournalTurn, bool) {
 	if err != nil || !found {
 		return memory.JournalTurn{}, false
 	}
-	for _, raw := range slices.Backward(after) {
-		var line transcriptLine
-		_ = json.Unmarshal(raw, &line)
-		_, blocks := decodeContent(line.Message.Content)
+	for _, blocks := range slices.Backward(replies) {
 		addAssistant(&turn, blocks, cwd)
 	}
 
@@ -225,21 +242,6 @@ func addAssistant(t *memory.JournalTurn, blocks []contentBlock, cwd string) {
 	if len(texts) > 0 {
 		t.Outcome = strings.Join(texts, "\n\n")
 	}
-}
-
-// decodeContent splits a message content field into its string form or its
-// block array. Content of neither shape yields "" and no blocks.
-func decodeContent(raw json.RawMessage) (string, []contentBlock) {
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return s, nil
-	}
-	var blocks []contentBlock
-	if json.Unmarshal(raw, &blocks) == nil {
-		return "", blocks
-	}
-
-	return "", nil
 }
 
 // userPrompt returns the prompt text of a user line that is a real prompt: a

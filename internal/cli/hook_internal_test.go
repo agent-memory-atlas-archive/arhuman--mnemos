@@ -69,10 +69,38 @@ func TestWorkingSetRef(t *testing.T) {
 	require.Equal(t, "(tasks/a.md)", workingSetRef(true, "", "tasks/a.md"), "no collection, no label")
 }
 
-// BenchmarkReadLastTurn reads the last turn of a long session transcript: 2000
-// turns of about 16 KiB each (32 MiB), the shape whose cost grows with the
-// session when the whole file is parsed on every Stop.
+// BenchmarkReadLastTurn reads the last turn of a 32 MiB transcript (2000
+// assistant lines of about 16 KiB) in three shapes: many short turns, where the
+// backward scan stops early; one long turn, and no real prompt at all, where it
+// reads the whole file.
 func BenchmarkReadLastTurn(b *testing.B) {
+	shapes := []struct {
+		name    string
+		prompts func(i int) bool
+		want    bool
+	}{
+		{"many-turns", func(int) bool { return true }, true},
+		{"one-long-turn", func(i int) bool { return i == 0 }, true},
+		{"no-prompt", func(int) bool { return false }, false},
+	}
+	for _, sh := range shapes {
+		b.Run(sh.name, func(b *testing.B) {
+			path := writeBenchTranscript(b, sh.prompts)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				if _, ok := readLastTurn(path, ""); ok != sh.want {
+					b.Fatalf("readLastTurn ok = %v, want %v", ok, sh.want)
+				}
+			}
+		})
+	}
+}
+
+// writeBenchTranscript writes 2000 assistant lines of about 16 KiB, each
+// preceded by a user prompt when prompt(i) is true, and returns the file path.
+func writeBenchTranscript(b *testing.B, prompt func(i int) bool) string {
+	b.Helper()
 	path := filepath.Join(b.TempDir(), "transcript.jsonl")
 	f, err := os.Create(path)
 	require.NoError(b, err)
@@ -80,10 +108,12 @@ func BenchmarkReadLastTurn(b *testing.B) {
 	enc := json.NewEncoder(w)
 	pad := strings.Repeat("x", 16<<10)
 	for i := range 2000 {
-		require.NoError(b, enc.Encode(map[string]any{
-			"type": "user", "timestamp": "2026-10-10T05:00:00Z",
-			"message": map[string]any{"content": "request " + strings.Repeat("r", i%7)},
-		}))
+		if prompt(i) {
+			require.NoError(b, enc.Encode(map[string]any{
+				"type": "user", "timestamp": "2026-10-10T05:00:00Z",
+				"message": map[string]any{"content": "request " + strings.Repeat("r", i%7)},
+			}))
+		}
 		require.NoError(b, enc.Encode(map[string]any{
 			"type":    "assistant",
 			"message": map[string]any{"content": []any{map[string]any{"type": "text", "text": pad}}},
@@ -92,12 +122,7 @@ func BenchmarkReadLastTurn(b *testing.B) {
 	require.NoError(b, w.Flush())
 	require.NoError(b, f.Close())
 
-	b.ResetTimer()
-	for b.Loop() {
-		if _, ok := readLastTurn(path, ""); !ok {
-			b.Fatal("no turn read")
-		}
-	}
+	return path
 }
 
 // TestScanLinesBackwardMatchesForwardSplit checks the backward scanner against
