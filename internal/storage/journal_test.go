@@ -283,7 +283,7 @@ func TestJournalPromotedToReadsFrontmatter(t *testing.T) {
 		storage.JournalCapturedAt(model.Document{FrontmatterJSON: `{"captured_at":"2026-09-01T00:00:00Z"}`}))
 }
 
-// TestJournalPendingAgreesWithPromotedTo is the P26 regression: an entry is in
+// TestJournalPendingAgreesWithPromotedTo pins that an entry is in
 // the pending list exactly when its promoted_to reads back empty, whitespace
 // other than spaces included.
 func TestJournalPendingAgreesWithPromotedTo(t *testing.T) {

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/arhuman/mnemos/internal/memory"
+	"github.com/arhuman/mnemos/internal/storage"
 )
 
 // journalTurnAt builds a turn for session "abcdef12-3456" captured at a fixed
@@ -56,8 +57,29 @@ func TestWriteJournalEntryCreatesThenUpdates(t *testing.T) {
 	require.Equal(t, []string{res.URI}, pendingURIs(t, f.svc))
 }
 
-// TestWriteJournalEntryKeepsPromotedEntry is the P19 regression: a write for a
-// turn whose entry was already reviewed leaves it untouched and out of pending.
+// TestWriteJournalEntryRoundTripsThroughIndex pins the frontmatter keys the
+// writer emits to the keys the index reads: captured_at comes back from the
+// pending list, and promoted_to from the stored review state.
+func TestWriteJournalEntryRoundTripsThroughIndex(t *testing.T) {
+	f := newFixture(t, true, false)
+	ctx := context.Background()
+	res, err := f.svc.WriteJournalEntry(ctx, journalTurnAt("outcome"))
+	require.NoError(t, err)
+
+	pending, err := f.svc.ListPendingJournal(ctx, 0)
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	require.Equal(t, "2026-10-10T05:31:42Z", pending[0].CapturedAt)
+
+	_, err = f.svc.PromoteJournal(ctx, memory.PromoteJournalInput{EntryURI: res.URI, Target: memory.PromoteNone})
+	require.NoError(t, err)
+	promoted, err := storage.JournalPromotedTo(ctx, f.db, res.URI)
+	require.NoError(t, err)
+	require.Equal(t, memory.PromoteNone, promoted)
+}
+
+// TestWriteJournalEntryKeepsPromotedEntry pins that a write for a turn whose
+// entry was already reviewed leaves it untouched and out of pending.
 func TestWriteJournalEntryKeepsPromotedEntry(t *testing.T) {
 	f := newFixture(t, true, false)
 	ctx := context.Background()

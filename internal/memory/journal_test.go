@@ -183,9 +183,11 @@ func TestJournalPromoteRefusals(t *testing.T) {
 	require.Equal(t, before, readTree(t, f.treeRoot, entry), "a refusal never writes")
 }
 
-// TestJournalPromoteRefusesStampOnDisk reproduces P25: the file already carries
-// promoted_to while its index row does not (stale index, or a racing promote).
+// TestJournalPromoteRefusesStampOnDisk covers a file that already carries
+// promoted_to while its index row does not, as after a stamp not yet reindexed.
 // The disk is the source of truth, so the promote is refused and the file kept.
+// Two promotes that both read before either writes are not covered: nothing
+// serializes them (ADR-0011, section 6).
 func TestJournalPromoteRefusesStampOnDisk(t *testing.T) {
 	f := newFixture(t, true, false)
 	entry, target := seedJournal(t, f)
@@ -502,6 +504,9 @@ func TestJournalPruneExactAgeIsKept(t *testing.T) {
 // the error is returned with the entries already removed, and their emptied
 // directory is still cleaned.
 func TestJournalPruneForgetFailureReportsRemoved(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions, so the removal cannot be made to fail")
+	}
 	f := newFixture(t, false, true)
 	first := f.seed(t, "journal/2026-09-20/aaaa-100000.md", journalAt("2026-09-20T10:00:00Z", memory.PromoteNone), "journal")
 	second := f.seed(t, "journal/2026-09-21/bbbb-100000.md", journalAt("2026-09-21T10:00:00Z", memory.PromoteNone), "journal")

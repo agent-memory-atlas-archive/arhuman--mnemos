@@ -377,8 +377,8 @@ func TestHookStopSilentNoOps(t *testing.T) {
 	})
 }
 
-// TestHookStopKeepsPromotedEntry reproduces P19: a second Stop on the same last
-// prompt must not rewrite a promoted entry back into the pending list.
+// TestHookStopKeepsPromotedEntry pins that a second Stop on the same last
+// prompt does not rewrite a promoted entry back into the pending list.
 func TestHookStopKeepsPromotedEntry(t *testing.T) {
 	stopWorkspace(t)
 	transcript := writeTranscript(t,
@@ -397,9 +397,9 @@ func TestHookStopKeepsPromotedEntry(t *testing.T) {
 	require.Equal(t, "no pending journal entries\n", runCmd(t, "journal", "pending"))
 }
 
-// TestHookStopScanErrorDropsEntry reproduces P23: a line past the cap inside
-// the last turn must drop the entry, never journal a partial or earlier turn. A
-// long line before the last prompt is never read (P30), so that turn is kept.
+// TestHookStopScanErrorDropsEntry pins that a line past the cap inside the last
+// turn drops the entry, never journaling a partial or earlier turn. A long line
+// before the last prompt is never read (the scan runs backwards), so that turn is kept.
 func TestHookStopScanErrorDropsEntry(t *testing.T) {
 	long := assistantLine(false, textBlock(strings.Repeat("x", 17<<20)))
 
