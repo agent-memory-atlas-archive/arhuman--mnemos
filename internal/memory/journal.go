@@ -2,8 +2,10 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"slices"
@@ -204,23 +206,25 @@ type PruneJournalResult struct {
 // neither parseable (RFC 3339) is kept and counted in SkippedUndated. Only an
 // entry stamped with promoted_to (a kb uri or PromoteNone) whose age is strictly
 // greater than OlderThan is eligible. An unreviewed entry is never pruned; one old
-// enough to qualify is counted in SkippedUnreviewed.
+// enough to qualify is counted in SkippedUnreviewed. Candidates are listed in uri
+// order.
 //
 // A dry run (Apply false) only reads and is ungated. Apply requires
 // [mcp].allow_delete and refuses before any read when it is off. Each entry is
 // removed through Forget (index first, then disk); the first failure stops the
-// prune and is returned with what was removed so far. Then every directory that
-// held a removed entry and now holds nothing but its log.md loses it and is
-// removed; a directory holding anything else, an index.md included, is left
-// untouched. An OlderThan <= 0 is refused so a typo cannot empty the
-// tier.
+// removals. Then every directory that held a removed entry and now holds nothing
+// but its log.md loses it and is removed; a directory holding anything else, an
+// index.md included, is left untouched. That cleanup also runs after a failed
+// removal, and the error is returned with what was removed so far. An
+// OlderThan <= 0 is refused so a typo cannot empty the tier. Every error carries
+// the "journal prune:" prefix.
 func (s *Service) PruneJournal(ctx context.Context, in PruneJournalInput) (PruneJournalResult, error) {
 	res := PruneJournalResult{Pruned: []JournalEntry{}, RemovedDirs: []string{}, Applied: in.Apply}
 	if err := ctx.Err(); err != nil {
 		return res, err
 	}
 	if in.Apply && !s.cfg.MCP.AllowDelete {
-		return res, errDeleteDisabled
+		return res, fmt.Errorf("journal prune: %w", errDeleteDisabled)
 	}
 	if in.OlderThan <= 0 {
 		return res, fmt.Errorf("journal prune: older-than must be positive, got %s", in.OlderThan)
@@ -232,63 +236,101 @@ func (s *Service) PruneJournal(ctx context.Context, in PruneJournalInput) (Prune
 
 	docs, err := storage.ListJournal(ctx, s.db, 0)
 	if err != nil {
-		return res, fmt.Errorf("memory: prune journal: %w", err)
+		return res, fmt.Errorf("journal prune: %w", err)
 	}
+	s.planPrune(&res, docs, in.OlderThan, now)
+	if !in.Apply {
+		return res, nil
+	}
+
+	return s.applyPrune(ctx, res)
+}
+
+// planPrune sorts the visible journal rows of docs into res: eligible entries
+// in Pruned (uri order), and the unreviewed and undated skip counts. It reads
+// nothing but the rows.
+func (s *Service) planPrune(res *PruneJournalResult, docs []model.Document, olderThan time.Duration, now time.Time) {
 	for _, d := range docs {
 		if s.hiddenCollection(d.Collection) {
 			continue
 		}
-		age, dated := journalAge(d, now)
+		capturedAt, promotedTo := journalMeta(d)
+		age, dated := journalAge(capturedAt, d.ModifiedAt, now)
 		switch {
 		case !dated:
 			res.SkippedUndated++
-		case age <= in.OlderThan:
-		case storage.JournalPromotedTo(d) == "":
+		case age <= olderThan:
+		case promotedTo == "":
 			res.SkippedUnreviewed++
 		default:
 			res.Pruned = append(res.Pruned, JournalEntry{
 				URI:        d.URI,
 				Collection: d.Collection,
 				Title:      d.Title,
-				CapturedAt: storage.JournalCapturedAt(d),
+				CapturedAt: capturedAt,
 				ModifiedAt: d.ModifiedAt,
 			})
 		}
 	}
-	if !in.Apply {
-		return res, nil
-	}
+	slices.SortFunc(res.Pruned, func(a, b JournalEntry) int { return strings.Compare(a.URI, b.URI) })
+}
 
+// applyPrune forgets the planned entries in order, stopping at the first
+// failure, then removes the directories the removed entries left holding only a
+// log.md. res.Pruned is rewritten to the entries actually removed.
+func (s *Service) applyPrune(ctx context.Context, res PruneJournalResult) (PruneJournalResult, error) {
 	candidates := res.Pruned
 	res.Pruned = []JournalEntry{}
-	var dirs []string
+	dirs := make(map[string]bool)
+	var forgetErr error
 	for _, e := range candidates {
-		if _, err := s.Forget(ctx, e.URI); err != nil {
-			return res, fmt.Errorf("journal prune: %w", err)
+		if _, forgetErr = s.Forget(ctx, e.URI); forgetErr != nil {
+			break
 		}
 		res.Pruned = append(res.Pruned, e)
-		if dir := path.Dir(e.URI); dir != "." && !slices.Contains(dirs, dir) {
-			dirs = append(dirs, dir)
+		if dir := path.Dir(e.URI); dir != "." {
+			dirs[dir] = true
 		}
 	}
-	slices.Sort(dirs)
-	for _, dir := range dirs {
+	for _, dir := range slices.Sorted(maps.Keys(dirs)) {
 		removed, err := s.removeIfOnlyLog(ctx, dir)
 		if err != nil {
-			return res, fmt.Errorf("journal prune: %w", err)
+			return res, fmt.Errorf("journal prune: %w", errors.Join(forgetErr, err))
 		}
 		if removed {
 			res.RemovedDirs = append(res.RemovedDirs, dir)
 		}
 	}
+	if forgetErr != nil {
+		return res, fmt.Errorf("journal prune: %w", forgetErr)
+	}
 
 	return res, nil
 }
 
-// journalAge returns now minus the entry's captured_at, else its modified_at,
-// and false when neither parses as RFC 3339.
-func journalAge(d model.Document, now time.Time) (time.Duration, bool) {
-	for _, ts := range []string{storage.JournalCapturedAt(d), d.ModifiedAt} {
+// journalMeta decodes a journal row's frontmatter once and returns its
+// captured_at and promoted_to values, each "" when absent. A non-string scalar
+// is rendered with fmt, as storage's pending test does.
+func journalMeta(d model.Document) (capturedAt, promotedTo string) {
+	var m map[string]any
+	if d.FrontmatterJSON == "" || json.Unmarshal([]byte(d.FrontmatterJSON), &m) != nil {
+		return "", ""
+	}
+	str := func(key string) string {
+		if v, ok := m[key]; ok && v != nil {
+			return strings.TrimSpace(fmt.Sprint(v))
+		}
+
+		return ""
+	}
+
+	return str(storage.CapturedAtKey), str(storage.PromotedToKey)
+}
+
+// journalAge returns now minus capturedAt, else modifiedAt, and false when
+// neither parses as RFC 3339.
+func journalAge(capturedAt, modifiedAt string, now time.Time) (time.Duration, bool) {
+	for _, ts := range []string{capturedAt, modifiedAt} {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
 			return now.Sub(t), true
 		}

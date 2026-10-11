@@ -423,3 +423,34 @@ func TestJournalPruneKeepsAuthoredIndex(t *testing.T) {
 	requireOnDisk(t, f, "notes/index.md", true)
 	requireOnDisk(t, f, "notes/log.md", true)
 }
+
+// TestJournalPruneExactAgeIsKept pins the strict bound: an entry aged exactly
+// OlderThan is not pruned.
+func TestJournalPruneExactAgeIsKept(t *testing.T) {
+	f := newFixture(t, false, true)
+	entry := f.seed(t, "journal/2026-09-24/aaaa-100000.md", journalAt("2026-09-24T10:00:00Z", memory.PromoteNone), "journal")
+
+	res, err := f.svc.PruneJournal(context.Background(), memory.PruneJournalInput{OlderThan: pruneNow.Sub(time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)), Apply: true, Now: pruneNow})
+	require.NoError(t, err)
+	require.Empty(t, res.Pruned)
+	requireOnDisk(t, f, entry, true)
+}
+
+// TestJournalPruneForgetFailureReportsRemoved covers a removal failing mid-loop:
+// the error is returned with the entries already removed, and their emptied
+// directory is still cleaned.
+func TestJournalPruneForgetFailureReportsRemoved(t *testing.T) {
+	f := newFixture(t, false, true)
+	first := f.seed(t, "journal/2026-09-20/aaaa-100000.md", journalAt("2026-09-20T10:00:00Z", memory.PromoteNone), "journal")
+	second := f.seed(t, "journal/2026-09-21/bbbb-100000.md", journalAt("2026-09-21T10:00:00Z", memory.PromoteNone), "journal")
+	locked := filepath.Join(f.treeRoot, "journal", "2026-09-21")
+	require.NoError(t, os.Chmod(locked, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+
+	res, err := f.svc.PruneJournal(context.Background(), memory.PruneJournalInput{OlderThan: 24 * time.Hour, Apply: true, Now: pruneNow})
+	require.Error(t, err)
+	require.Equal(t, []string{first}, prunedURIs(res))
+	require.Equal(t, []string{"journal/2026-09-20"}, res.RemovedDirs)
+	requireOnDisk(t, f, "journal/2026-09-20", false)
+	requireOnDisk(t, f, second, true)
+}
