@@ -120,10 +120,6 @@ linters:
       - path: internal/workspace/workspace\.go$
         linters: [gocognit, funlen]
         text: 'func `Resolve`|Function ''Resolve'''
-      # Over the limit since P25 (on-disk promote guard); split tracked as P32.
-      - path: internal/memory/edit\.go$
-        linters: [gocognit]
-        text: 'func `applyEdits`'
       - path: internal/ingest/okfy\.go$
         linters: [funlen]
         text: "Function 'Okfy'"

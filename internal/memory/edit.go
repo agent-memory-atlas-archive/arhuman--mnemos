@@ -232,28 +232,9 @@ func (s *Service) EditBody(ctx context.Context, uri, newBody string) (EditResult
 // every patch is located against the bytes the previous one produced.
 func applyEdits(content []byte, in EditFrontmatterInput) ([]byte, error) {
 	for _, f := range in.Fields {
-		doc, ok, err := okfyaml.Parse(content)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrNotEditable, err)
-		}
-		if !ok {
-			return nil, ErrNotEditable
-		}
-		if f.Mode == EditInsertOnly {
-			if v := fieldValue(doc, f.Key); v != "" {
-				return nil, fmt.Errorf("%w: %s is %q", ErrFieldSet, f.Key, v)
-			}
-		}
-		switch f.Mode {
-		case EditList:
-			content, err = doc.PatchTags(f.Key, f.Items)
-		case EditInsert, EditInsertOnly:
-			content, err = doc.SetScalar(f.Key, f.Value)
-		default:
-			content, err = doc.PatchScalar(f.Key, f.Value)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("edit field %q: %w", f.Key, err)
+		var err error
+		if content, err = applyField(content, f); err != nil {
+			return nil, err
 		}
 	}
 
@@ -261,15 +242,52 @@ func applyEdits(content []byte, in EditFrontmatterInput) ([]byte, error) {
 		return content, nil
 	}
 
-	doc, ok, err := okfyaml.Parse(content)
+	doc, err := parseEditable(content)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrNotEditable, err)
-	}
-	if !ok {
-		return nil, ErrNotEditable
+		return nil, err
 	}
 
 	return doc.ReplaceBody([]byte(*in.Body)), nil
+}
+
+// applyField applies one FieldEdit to content according to its Mode.
+func applyField(content []byte, f FieldEdit) ([]byte, error) {
+	doc, err := parseEditable(content)
+	if err != nil {
+		return nil, err
+	}
+	if f.Mode == EditInsertOnly {
+		if v := fieldValue(doc, f.Key); v != "" {
+			return nil, fmt.Errorf("%w: %s is %q", ErrFieldSet, f.Key, v)
+		}
+	}
+	switch f.Mode {
+	case EditList:
+		content, err = doc.PatchTags(f.Key, f.Items)
+	case EditInsert, EditInsertOnly:
+		content, err = doc.SetScalar(f.Key, f.Value)
+	default:
+		content, err = doc.PatchScalar(f.Key, f.Value)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("edit field %q: %w", f.Key, err)
+	}
+
+	return content, nil
+}
+
+// parseEditable parses content, reporting ErrNotEditable when it has no
+// frontmatter or the frontmatter cannot be parsed.
+func parseEditable(content []byte) (okfyaml.Doc, error) {
+	doc, ok, err := okfyaml.Parse(content)
+	if err != nil {
+		return okfyaml.Doc{}, fmt.Errorf("%w: %w", ErrNotEditable, err)
+	}
+	if !ok {
+		return okfyaml.Doc{}, ErrNotEditable
+	}
+
+	return doc, nil
 }
 
 // fieldValue returns the trimmed value of the top-level key in doc, or "".
