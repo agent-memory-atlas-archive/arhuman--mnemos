@@ -137,4 +137,7 @@ func TestJournalPromoteToolStampsEntry(t *testing.T) {
 	res = callTool(t, cs, "mnemos.journal_promote",
 		map[string]any{"entry_uri": "journal/2026-09-24/turn.md", "promoted_to": "none"}, nil)
 	require.True(t, res.IsError, "a second stamp is refused, never silently applied")
+	tc, ok := res.Content[0].(*mcpsdk.TextContent)
+	require.True(t, ok)
+	require.Contains(t, tc.Text, "do not stamp it again")
 }

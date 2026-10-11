@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -44,7 +45,7 @@ func newJournalCmd(state *rootState) *cobra.Command {
 		Use:   "promote <entry-uri> <target>",
 		Short: "Stamp a journal entry with the kb document now holding it, or none",
 		Long: "Stamp a journal entry's promoted_to field with target: the uri of the kb document " +
-			"already written from it, or \"none\" when nothing was worth promoting. It does not write " +
+			"already written from it, or \"" + memory.PromoteNone + "\" when nothing was worth promoting. It does not write " +
 			"the kb document. Requires [mcp].allow_write=true.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -120,7 +121,7 @@ func runJournalPromote(cmd *cobra.Command, state *rootState, entryURI, target st
 		svc := memory.New(a.DB, a.Config, a.TreeRoot(), nil, a.Logger)
 		res, err := svc.PromoteJournal(cmd.Context(), memory.PromoteJournalInput{EntryURI: entryURI, Target: target})
 		if err != nil {
-			return fmt.Errorf("journal promote: %w", err)
+			return fmt.Errorf("journal promote: %w%s", err, promoteHint(err))
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s promoted_to %s\n", res.EntryURI, res.PromotedTo)
 
@@ -195,4 +196,19 @@ func renderPrunedJournal(out io.Writer, res memory.PruneJournalResult) {
 		_, _ = fmt.Fprintf(out, "removed dir %s\n", d)
 	}
 	_, _ = fmt.Fprintf(out, "skipped: %d unreviewed, %d undated\n", res.SkippedUnreviewed, res.SkippedUndated)
+}
+
+// promoteHint names the next step after a refused promotion, or "" for an
+// error that is not one of PromoteJournal's refusals.
+func promoteHint(err error) string {
+	switch {
+	case errors.Is(err, memory.ErrAlreadyPromoted):
+		return " (already reviewed: leave the entry as is)"
+	case errors.Is(err, memory.ErrInvalidPromoteTarget):
+		return " (write the kb document first, or pass " + memory.PromoteNone + ")"
+	case errors.Is(err, memory.ErrNotJournalEntry):
+		return " (list reviewable entries with mnemos journal pending)"
+	default:
+		return ""
+	}
 }

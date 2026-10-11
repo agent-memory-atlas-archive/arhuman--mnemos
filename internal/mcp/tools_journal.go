@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -68,8 +69,23 @@ func (s *Server) handleJournalPromote(ctx context.Context, _ *mcpsdk.CallToolReq
 
 	res, err := s.svc.PromoteJournal(ctx, memory.PromoteJournalInput{EntryURI: in.EntryURI, Target: in.PromotedTo})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%w%s", err, promoteHint(err))
 	}
 
 	return s.result(res)
+}
+
+// promoteHint names the next tool call after a refused promotion, or "" for an
+// error that is not one of PromoteJournal's refusals.
+func promoteHint(err error) string {
+	switch {
+	case errors.Is(err, memory.ErrAlreadyPromoted):
+		return " (already reviewed: do not stamp it again)"
+	case errors.Is(err, memory.ErrInvalidPromoteTarget):
+		return " (write the kb document with mnemos.remember first, or pass " + memory.PromoteNone + ")"
+	case errors.Is(err, memory.ErrNotJournalEntry):
+		return " (list reviewable entries with mnemos.journal_pending)"
+	default:
+		return ""
+	}
 }

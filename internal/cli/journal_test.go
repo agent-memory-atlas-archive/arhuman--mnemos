@@ -83,10 +83,12 @@ func TestJournalPromoteCLIRefusals(t *testing.T) {
 	_, err = runCmdErr(t, "journal", "promote", "journal/2026-09-24/turn.md", "adr/missing.md")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown uri")
+	require.Contains(t, err.Error(), "write the kb document first, or pass none")
 
 	_, err = runCmdErr(t, "journal", "promote", "adr/0001.md", "none")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not a journal entry")
+	require.Contains(t, err.Error(), "mnemos journal pending")
 }
 
 // seedPruneWorkspace indexes an old reviewed entry alone in its dated dir, an

@@ -100,7 +100,9 @@ type PromoteJournalResult struct {
 // Refusals: EntryURI must be an indexed, visible journal entry
 // (ErrNotJournalEntry); Target must be PromoteNone or an indexed, visible
 // document that is not itself a journal entry (ErrInvalidPromoteTarget); an
-// entry that already carries promoted_to is refused (ErrAlreadyPromoted).
+// entry that already carries promoted_to, in its index row or in the file on
+// disk (checked inside the edit, so a stale index cannot let it through), is
+// refused (ErrAlreadyPromoted).
 //
 // Every other frontmatter byte and the body are kept verbatim. The file is
 // written before the reindex; a reindex failure wraps ErrReindexAfterWrite, as
@@ -125,14 +127,18 @@ func (s *Service) PromoteJournal(ctx context.Context, in PromoteJournalInput) (P
 	}
 
 	target := strings.TrimSpace(in.Target)
-	if err := s.checkPromoteTarget(ctx, target); err != nil {
+	if err = s.checkPromoteTarget(ctx, target); err != nil {
 		return PromoteJournalResult{}, err
 	}
 
-	if _, err := s.EditFrontmatter(ctx, EditFrontmatterInput{
+	_, err = s.EditFrontmatter(ctx, EditFrontmatterInput{
 		URI:    entry.URI,
-		Fields: []FieldEdit{{Key: storage.PromotedToKey, Value: target, Insert: true}},
-	}); err != nil {
+		Fields: []FieldEdit{{Key: storage.PromotedToKey, Value: target, InsertOnly: true}},
+	})
+	if errors.Is(err, ErrFieldSet) {
+		return PromoteJournalResult{EntryURI: entry.URI}, fmt.Errorf("%w: %q on disk: %w", ErrAlreadyPromoted, entry.URI, err)
+	}
+	if err != nil {
 		return PromoteJournalResult{EntryURI: entry.URI}, err
 	}
 	s.logger.Info("journal entry promoted", "uri", entry.URI, "promoted_to", target)

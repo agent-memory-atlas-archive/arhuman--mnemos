@@ -181,6 +181,21 @@ func TestJournalPromoteRefusals(t *testing.T) {
 	require.Equal(t, before, readTree(t, f.treeRoot, entry), "a refusal never writes")
 }
 
+// TestJournalPromoteRefusesStampOnDisk reproduces P25: the file already carries
+// promoted_to while its index row does not (stale index, or a racing promote).
+// The disk is the source of truth, so the promote is refused and the file kept.
+func TestJournalPromoteRefusesStampOnDisk(t *testing.T) {
+	f := newFixture(t, true, false)
+	entry, target := seedJournal(t, f)
+	stamped := strings.Replace(journalEntry, "session_id: abc12345\n", "session_id: abc12345\npromoted_to: adr/0001-sqlite.md\n", 1)
+	testutil.WriteFile(t, f.treeRoot, entry, stamped)
+
+	_, err := f.svc.PromoteJournal(context.Background(), memory.PromoteJournalInput{EntryURI: entry, Target: target})
+	require.ErrorIs(t, err, memory.ErrAlreadyPromoted)
+	require.Contains(t, err.Error(), "adr/0001-sqlite.md")
+	require.Equal(t, stamped, readTree(t, f.treeRoot, entry))
+}
+
 // TestJournalPromoteRefusesWhenWriteDisabled pins the allow_write gate: the
 // refusal fires before any lookup or write.
 func TestJournalPromoteRefusesWhenWriteDisabled(t *testing.T) {
