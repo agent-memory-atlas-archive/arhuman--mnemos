@@ -142,8 +142,9 @@ The Stop hook only parses the transcript; the memory service owns the entry
 contract (path `journal/<date>/<session8>-<HHMMSS>.md`, frontmatter, collection,
 `captured_at`). Because the path is a pure function of the session and the
 prompt instant, a second Stop for the same turn updates the entry instead of
-adding one. That update never drops review state: an entry already carrying
-`promoted_to` is left untouched.
+adding one. That update never drops review state: an entry already carrying a
+non-empty `promoted_to` (null, `~` and blank count as empty, as in the pending
+list), or one whose frontmatter cannot be read back, is left untouched.
 
 ## Consequences
 

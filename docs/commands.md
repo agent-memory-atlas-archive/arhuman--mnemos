@@ -95,7 +95,9 @@ output) when the project has no mnemos workspace or nothing relevant to do.
 nothing: it reads the transcript named in the payload and writes through the same
 path as `mnemos.remember`, so the entry is secret-scanned and dropped (not
 failed) when a secret is found or writes are disabled. Re-running it on the same
-turn overwrites that turn's entry instead of adding one.
+turn updates that turn's entry instead of adding one, except that an entry already
+reviewed (a non-empty `promoted_to`) or whose frontmatter cannot be read is left
+untouched. [ADR-0011](adr/0011-journal-tier.md) is the full contract.
 
 ## Evaluation
 
