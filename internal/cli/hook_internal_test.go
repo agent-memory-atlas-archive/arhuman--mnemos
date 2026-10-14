@@ -192,6 +192,13 @@ func TestUserPrompt(t *testing.T) {
 		{"uppercase type", "", []contentBlock{typed("Image")}, "[attachment]", true},
 		{"over-long type", "", []contentBlock{typed(strings.Repeat("a", 33))}, "[attachment]", true},
 		{"longest plain type", "", []contentBlock{typed(strings.Repeat("a", 31) + "_")}, "[" + strings.Repeat("a", 31) + "_]", true},
+		{"bash input", "<bash-input>ls</bash-input>", nil, "", false},
+		{"bash output", "\n<bash-stdout>a</bash-stdout><bash-stderr></bash-stderr>", nil, "", false},
+		{"bash stderr", "<bash-stderr>boom</bash-stderr>", nil, "", false},
+		{"local command output", "<local-command-stdout>ok</local-command-stdout>", nil, "", false},
+		{"local command error", "<local-command-stderr>no</local-command-stderr>", nil, "", false},
+		{"bash output block", "", []contentBlock{text("<bash-stdout>a</bash-stdout>")}, "", false},
+		{"tag mid-prompt", "see <bash-stdout>", nil, "see <bash-stdout>", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

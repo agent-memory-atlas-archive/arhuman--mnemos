@@ -301,7 +301,24 @@ func addAssistant(t *memory.JournalTurn, blocks []contentBlock, cwd string) {
 // its block types in brackets, so the turn still starts there; a type that is
 // not a short plain identifier (see attachmentLabel) reads as [attachment], so
 // the attachment type alone cannot forge journal sections (other fields still can).
+// A line opening with a harness tag (see harnessTags) is not a prompt: it records
+// a shell escape or a local command, which never reached the assistant.
 func userPrompt(text string, blocks []contentBlock) (string, bool) {
+	prompt, ok := promptText(text, blocks)
+	if ok && slices.ContainsFunc(harnessTags, func(tag string) bool { return strings.HasPrefix(prompt, tag) }) {
+		return "", false
+	}
+
+	return prompt, ok
+}
+
+// harnessTags open the user lines Claude Code writes for a `!` shell escape
+// (its command and output) and for a local slash command's output.
+var harnessTags = []string{"<bash-input>", "<bash-stdout>", "<bash-stderr>", "<local-command-stdout>", "<local-command-stderr>"}
+
+// promptText returns the request a user line carries, as userPrompt documents,
+// before the harness tag check.
+func promptText(text string, blocks []contentBlock) (string, bool) {
 	if blocks == nil {
 		text = strings.TrimSpace(text)
 

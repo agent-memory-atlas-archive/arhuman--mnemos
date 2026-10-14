@@ -100,7 +100,10 @@ turn updates that turn's entry instead of adding one, except that an entry alrea
 reviewed (a non-empty `promoted_to`) or whose frontmatter cannot be read is left
 untouched. A turn starts at the last user prompt holding text or an attachment;
 a tool result does not start one, and neither does a user line marked `isMeta`
-or any sidechain line, even with text (sidechain lines are ignored entirely). A
+or any sidechain line, even with text (sidechain lines are ignored entirely), nor
+a line Claude Code writes for a `!` shell escape or a local command's output (one
+opening with `<bash-input>`, `<bash-stdout>`, `<bash-stderr>`,
+`<local-command-stdout>` or `<local-command-stderr>`). A
 prompt with only attachments, such as a pasted image, is recorded as its block
 types in brackets (`[image]`); a type that is not a plain identifier of up to 32
 lowercase letters, digits or underscores is recorded as `[attachment]`.

@@ -326,6 +326,31 @@ func TestHookStopImageOnlyPromptStartsTurn(t *testing.T) {
 	}
 }
 
+// TestHookStopShellEscapeKeepsTurn pins that a `!` shell escape run after a
+// prompt does not start a turn: the entry still covers the prompt before it.
+func TestHookStopShellEscapeKeepsTurn(t *testing.T) {
+	stopWorkspace(t)
+	transcript := writeTranscript(t,
+		userLine("2026-10-10T05:00:00Z", "first request"),
+		assistantLine(false, textBlock("first outcome")),
+		`{"type":"user","isMeta":true,"timestamp":"2026-10-10T06:00:00Z","message":{"role":"user","content":"<local-command-caveat>caveat</local-command-caveat>"}}`,
+		userLine("2026-10-10T06:00:01Z", "<bash-input>cat missing</bash-input>"),
+		userLine("2026-10-10T06:00:02Z", "<bash-stdout></bash-stdout><bash-stderr>cat: missing: No such file</bash-stderr>"),
+	)
+
+	out := runHook(t, stopPayload(t, transcript, false), "hook", "stop")
+
+	require.Empty(t, out)
+	entries := journalEntries(t)
+	require.Equal(t, []string{"journal/2026-10-10/abcdef12-050000.md"}, entries)
+	raw, err := os.ReadFile(kbPath(entries[0]))
+	require.NoError(t, err)
+	body := string(raw)
+	require.Contains(t, body, "## Request\n\nfirst request\n")
+	require.Contains(t, body, "first outcome")
+	require.NotContains(t, body, "bash-")
+}
+
 func TestHookStopRerunIsIdempotent(t *testing.T) {
 	stopWorkspace(t)
 	transcript := writeTranscript(t,
