@@ -17,6 +17,11 @@ type Finding struct {
 	// raw credential cannot be surfaced to an untrusted client; it exists for
 	// in-package auditing and tests only.
 	secret string
+	// identifier and value are the keyword and quoted value captured by a rule
+	// with named groups (generic-credential-assignment); empty for other rules.
+	// Unexported for the same reason as secret.
+	identifier string
+	value      string
 }
 
 // SecretScanner screens free-form content for credentials before it is
@@ -24,11 +29,20 @@ type Finding struct {
 // implementation below can be replaced by a gitleaks-backed one without
 // touching callers.
 type SecretScanner interface {
-	// Scan returns one Finding per detected secret. A clean input yields a nil
-	// slice and a nil error. err is non-nil only on an operational failure, not
-	// on the presence of a secret.
-	Scan(content string) ([]Finding, error)
+	// Scan returns one Finding per detected secret. path is the
+	// slash-separated, tree-root-relative uri of content, or "" when content has
+	// no path (free-text capture); implementations may ignore it. A clean input
+	// yields a nil slice and a nil error. err is non-nil only on an operational
+	// failure, not on the presence of a secret.
+	Scan(path, content string) ([]Finding, error)
 }
+
+// genericKeywords is the keyword alternation of generic-credential-assignment,
+// shared with ValidateAccepts so an accepted identifier uses the same set.
+const genericKeywords = `api[_-]?key|secret|token|password`
+
+// genericRule names the generic-credential-assignment rule.
+const genericRule = "generic-credential-assignment"
 
 // rule pairs a regexp with the name reported when it matches. Patterns are
 // compiled once at package load.
@@ -55,7 +69,7 @@ var rules = []rule{
 	{"stripe-live-key", regexp.MustCompile(`\b(sk|rk)_live_[0-9A-Za-z]{16,}\b`)},
 	{"jwt", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`)},
 	{"db-dsn-credentials", regexp.MustCompile(`\b(postgres|postgresql|mysql|mongodb(\+srv)?)://[^:\s/]+:[^@\s]+@`)},
-	{"generic-credential-assignment", regexp.MustCompile(`(?i)(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"][^'"]{16,}['"]`)},
+	{genericRule, regexp.MustCompile(`(?i)(?P<identifier>` + genericKeywords + `)\s*[:=]\s*['"](?P<value>[^'"]{16,})['"]`)},
 }
 
 // RegexScanner detects secrets with a fixed set of compiled patterns. It is the
@@ -69,14 +83,15 @@ func NewRegexScanner() RegexScanner {
 	return RegexScanner{}
 }
 
-// Scan reports every high-signal credential pattern found in content. Two
-// distinct secrets on one line yield two findings; the same substring matched
-// by multiple patterns is reported once, under the first (most specific) rule.
-// The result is nil for clean content.
-func (RegexScanner) Scan(content string) ([]Finding, error) {
+// Scan reports every high-signal credential pattern found in content; path is
+// ignored. Two distinct secrets on one line yield two findings; the same
+// substring matched by multiple patterns is reported once, under the first (most
+// specific) rule. The result is nil for clean content.
+func (RegexScanner) Scan(_, content string) ([]Finding, error) {
 	var findings []Finding
 	seen := make(map[string]bool)
 	for _, r := range rules {
+		idIdx, valIdx := r.re.SubexpIndex("identifier"), r.re.SubexpIndex("value")
 		for _, m := range r.re.FindAllString(content, -1) {
 			// Rules are ordered specific-first; skip a substring an earlier rule
 			// already claimed so one secret is not double-reported under a broader
@@ -85,7 +100,12 @@ func (RegexScanner) Scan(content string) ([]Finding, error) {
 				continue
 			}
 			seen[m] = true
-			findings = append(findings, Finding{Rule: r.name, secret: m})
+			f := Finding{Rule: r.name, secret: m}
+			if idIdx >= 0 {
+				sub := r.re.FindStringSubmatch(m)
+				f.identifier, f.value = sub[idIdx], sub[valIdx]
+			}
+			findings = append(findings, f)
 		}
 	}
 

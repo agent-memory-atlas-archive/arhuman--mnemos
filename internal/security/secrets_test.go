@@ -112,7 +112,7 @@ func TestRegexScanner(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			findings, err := scanner.Scan(tc.content)
+			findings, err := scanner.Scan("", tc.content)
 			require.NoError(t, err)
 			require.Len(t, findings, tc.wantCount)
 			if tc.wantRule != "" {
@@ -127,7 +127,7 @@ func TestRegexScannerReportsMultipleFindings(t *testing.T) {
 	scanner := NewRegexScanner()
 	content := "AKIAQYLPMN5HXYZ12345 and ghp_1234567890abcdefghijklmnopqrstuvwxyzAB"
 
-	findings, err := scanner.Scan(content)
+	findings, err := scanner.Scan("", content)
 	require.NoError(t, err)
 	require.Len(t, findings, 2)
 }

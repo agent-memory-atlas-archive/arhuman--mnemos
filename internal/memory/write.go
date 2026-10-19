@@ -83,7 +83,7 @@ func (s *Service) Remember(ctx context.Context, in RememberInput) (RememberResul
 
 	// Secret-scan before writing anything. Report only the rule names; never echo
 	// the matched secret back to the caller.
-	findings, err := s.scanner.Scan(in.Text)
+	findings, err := s.scanner.Scan("", in.Text)
 	if err != nil {
 		return RememberResult{}, fmt.Errorf("remember scan: %w", err)
 	}

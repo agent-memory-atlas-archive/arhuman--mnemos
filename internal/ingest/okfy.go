@@ -86,7 +86,7 @@ func Okfy(ctx context.Context, db *sql.DB, logger *slog.Logger, opts OkfyOptions
 
 	// Secret-scan the source body before writing anything. Report only the rule
 	// names; never echo the matched secret back to the caller.
-	findings, err := opts.Scanner.Scan(string(content))
+	findings, err := opts.Scanner.Scan(srcURI, string(content))
 	if err != nil {
 		return OkfyResult{}, fmt.Errorf("okfy: scan %q: %w", srcURI, err)
 	}

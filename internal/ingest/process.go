@@ -315,7 +315,7 @@ func (p *Pipeline) scanSecrets(content []byte, uri string) bool {
 		return false
 	}
 
-	findings, err := p.scanner.Scan(string(content))
+	findings, err := p.scanner.Scan(uri, string(content))
 	if err != nil {
 		p.logger.Warn("ingest skip unscannable file", "uri", uri, "error", err)
 
