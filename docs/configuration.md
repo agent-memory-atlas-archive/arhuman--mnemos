@@ -11,8 +11,8 @@ working directory; otherwise the global `~/.mnemos`. The config file is always
 `<MNEMOS_DIR>/mnemos.toml`. Passing `--config <path>` names that file directly, and
 its parent directory becomes the MNEMOS_DIR (and tree root).
 
-The config carries behaviour only — indexing, chunking, search, the MCP surface,
-and security — never locations: every path (index db, kb, capture, models) is
+The config carries behaviour only (indexing, chunking, search, the MCP surface,
+and security), never locations: every path (index db, kb, capture, models) is
 derived from MNEMOS_DIR, not configured here.
 
 ```toml
@@ -52,12 +52,73 @@ defer_to_watcher = false    # true => remember is write-only, a running watcher 
 exclude_secrets = true
 exclude = ["**/.env", "**/*.pem", "**/*.key", "**/id_rsa", "**/secrets/**"]
 
+# Optional: accept a finding known not to be a secret (see "Accepted findings" below).
+# [[security.accept]]
+# rule = "generic-credential-assignment"
+# identifier = "token"
+# value = "00000000000000000000000000000000"
+# paths = ["src/**/OfflineAuth.cs"]
+# reason = "offline fallback placeholder"
+
 [security.visibility]
 # Collections hidden from every query surface (search, context, read, list, task),
 # enforced server-side. Empty by default. A hidden collection never surfaces even
 # when a caller names it. Example: deny = ["perso", "epfl"]
 deny = []
 ```
+
+## Accepted findings
+
+The secret scanner matches patterns, so it also flags values that are not
+secrets. A documented offline placeholder is the typical case:
+
+```csharp
+// Fixed offline fallback placeholder, not a credential.
+private const string OfflineToken = "00000000000000000000000000000000";
+```
+
+`generic-credential-assignment` matches `Token = "000..."`, and ingest skips the
+whole file. An `[[security.accept]]` entry declares that one finding safe:
+
+```toml
+[[security.accept]]
+rule = "generic-credential-assignment"
+identifier = "token"
+value = "00000000000000000000000000000000"
+paths = ["src/**/OfflineAuth.cs"]
+reason = "offline fallback placeholder"
+```
+
+An entry drops **one finding, never the file**. The file is still scanned in
+full, and it is still skipped when:
+
+- the same identifier holds a different value;
+- it holds any other finding, such as a cloud provider key;
+- its path matches none of the entry's `paths`.
+
+| Key | Required | Meaning |
+|---|---|---|
+| `rule` | yes | The rule name the finding carries. An entry for one rule never suppresses another. |
+| `identifier` | `generic-credential-assignment` only | The matched keyword, case-insensitive: `api_key` (or `apikey`, `api-key`), `secret`, `token` or `password`. It is the keyword the rule matched, so `token` covers both `OfflineToken = ...` and `token = ...`. Leave it out for any other rule. |
+| `value` | yes | The exact value. For `generic-credential-assignment`, the text between the quotes (16 characters or more). For any other rule, the whole matched text. |
+| `paths` | yes | Globs on the path relative to the kb root, with the same syntax as `include`/`exclude`. |
+| `reason` | yes | Why the value is safe. |
+
+`paths` is required so that an entry stays local to the files a reviewer
+checked: the same placeholder elsewhere is still flagged. `reason` is required
+because the config file is the only record of why a finding was accepted.
+
+Remembered text (`remember`, the journal hook) is never exempt, whatever the
+entries say: entries apply only to content read from a path.
+
+An entry that can never match fails when the config loads, not as a silent skip
+mid-ingest: an unknown rule, a missing `value`, `paths` or `reason`, a bad glob,
+a duplicate entry, an `identifier` outside the keyword list, or a
+`generic-credential-assignment` value shorter than 16 characters or holding a
+quote.
+
+Accept placeholders only, never real credentials: `mnemos.toml` may itself be
+indexed or backed up.
 
 ## Legacy source encodings
 
