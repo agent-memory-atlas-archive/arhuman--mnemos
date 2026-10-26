@@ -56,35 +56,63 @@ func NewScanner(accepts []Accept) SecretScanner {
 	return AcceptingScanner{base: NewRegexScanner(), accepts: accepts}
 }
 
+// AcceptedFinding names a finding an Accept entry dropped: the rule and the
+// entry's reason, never the matched value, so it is safe to log.
+type AcceptedFinding struct {
+	Rule   string
+	Reason string
+}
+
+// AcceptReporter is a SecretScanner that also reports the findings it dropped.
+// Callers that audit accepted findings (ingest debug logs) check for it with a
+// type assertion; Scan alone stays the screening contract.
+type AcceptReporter interface {
+	// ScanReport returns what Scan returns, plus one AcceptedFinding per finding
+	// an Accept entry dropped.
+	ScanReport(path, content string) (kept []Finding, accepted []AcceptedFinding, err error)
+}
+
 // Scan runs the base scanner and drops each finding matched by an Accept entry
 // on rule, value and path. A pathless scan (path == "") is never exempt. The
 // result is nil when no finding survives.
 func (s AcceptingScanner) Scan(path, content string) ([]Finding, error) {
+	kept, _, err := s.ScanReport(path, content)
+
+	return kept, err
+}
+
+// ScanReport is Scan that also returns one AcceptedFinding per dropped finding,
+// in scan order, carrying the first matching entry's reason. Both slices are
+// nil when empty.
+func (s AcceptingScanner) ScanReport(path, content string) ([]Finding, []AcceptedFinding, error) {
 	findings, err := s.base.Scan(path, content)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var kept []Finding
+	var accepted []AcceptedFinding
 	for _, f := range findings {
-		if !s.accepted(path, f) {
+		if a, ok := s.acceptFor(path, f); ok {
+			accepted = append(accepted, AcceptedFinding{Rule: f.Rule, Reason: a.Reason})
+		} else {
 			kept = append(kept, f)
 		}
 	}
 
-	return kept, nil
+	return kept, accepted, nil
 }
 
-func (s AcceptingScanner) accepted(path string, f Finding) bool {
+func (s AcceptingScanner) acceptFor(path string, f Finding) (Accept, bool) {
 	if path == "" {
-		return false
+		return Accept{}, false
 	}
 	for _, a := range s.accepts {
 		if f.Rule == a.Rule && valueMatches(a, f) && pathMatches(a.Paths, path) {
-			return true
+			return a, true
 		}
 	}
 
-	return false
+	return Accept{}, false
 }
 
 func valueMatches(a Accept, f Finding) bool {

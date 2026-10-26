@@ -17,6 +17,7 @@ import (
 	"github.com/arhuman/mnemos/internal/chunk"
 	"github.com/arhuman/mnemos/internal/model"
 	"github.com/arhuman/mnemos/internal/parse"
+	"github.com/arhuman/mnemos/internal/security"
 	"github.com/arhuman/mnemos/internal/storage"
 )
 
@@ -310,12 +311,17 @@ func (p *Pipeline) indexableContent(content []byte, uri string) ([]byte, bool) {
 // a lower-trust sink than the index, so echoing a secret there would move it
 // rather than contain it. A scanner failure is treated as a skip, since ingesting
 // content that could not be screened is the outcome scanning exists to prevent.
+// Each finding dropped by a [[security.accept]] entry is debug-logged with its
+// rule and reason, for the same reason without its value.
 func (p *Pipeline) scanSecrets(content []byte, uri string) bool {
 	if p.scanner == nil {
 		return false
 	}
 
-	findings, err := p.scanner.Scan(uri, string(content))
+	findings, accepted, err := p.scan(uri, string(content))
+	for _, a := range accepted {
+		p.logger.Debug("ingest accepted secret finding", "uri", uri, "rule", a.Rule, "reason", a.Reason)
+	}
 	if err != nil {
 		p.logger.Warn("ingest skip unscannable file", "uri", uri, "error", err)
 
@@ -329,6 +335,15 @@ func (p *Pipeline) scanSecrets(content []byte, uri string) bool {
 	}
 
 	return false
+}
+
+func (p *Pipeline) scan(uri, content string) ([]security.Finding, []security.AcceptedFinding, error) {
+	if r, ok := p.scanner.(security.AcceptReporter); ok {
+		return r.ScanReport(uri, content)
+	}
+	findings, err := p.scanner.Scan(uri, content)
+
+	return findings, nil, err
 }
 
 func (p *Pipeline) textContent(content []byte, uri string) ([]byte, bool) {

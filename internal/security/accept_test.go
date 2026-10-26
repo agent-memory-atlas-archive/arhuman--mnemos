@@ -234,3 +234,31 @@ func TestValidateAccepts(t *testing.T) {
 		})
 	}
 }
+
+// TestAcceptingScannerReportsAccepted pins the audit side of an accepted
+// finding: ScanReport names each dropped finding by rule and entry reason, keeps
+// every other finding, and reports nothing on a pathless scan.
+func TestAcceptingScannerReportsAccepted(t *testing.T) {
+	zeros := strings.Repeat("0", 32)
+	content := `private const string OfflineToken = "` + zeros + `";` + "\n// AKIAQYLPMN5HXYZ12345\n"
+	s := NewScanner([]Accept{{
+		Rule:       "generic-credential-assignment",
+		Identifier: "token",
+		Value:      zeros,
+		Paths:      []string{"src/**/OfflineAuth.cs"},
+		Reason:     "offline placeholder",
+	}})
+	r, ok := s.(AcceptReporter)
+	require.True(t, ok, "NewScanner with entries must report accepted findings")
+
+	kept, accepted, err := r.ScanReport("src/Auth/OfflineAuth.cs", content)
+	require.NoError(t, err)
+	require.Equal(t, []AcceptedFinding{{Rule: "generic-credential-assignment", Reason: "offline placeholder"}}, accepted)
+	require.Len(t, kept, 1)
+	require.Equal(t, "aws-access-key-id", kept[0].Rule)
+
+	kept, accepted, err = r.ScanReport("", content)
+	require.NoError(t, err)
+	require.Nil(t, accepted, "a pathless scan is never exempt")
+	require.Len(t, kept, 2)
+}

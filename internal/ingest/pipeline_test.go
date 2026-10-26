@@ -1,6 +1,7 @@
 package ingest_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"io"
@@ -222,4 +223,35 @@ func TestIngestAcceptedPlaceholder(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestIngestLogsAcceptedFinding pins the audit trail of an accepted finding:
+// ingest debug-logs its uri, rule and reason, and never the accepted value.
+func TestIngestLogsAcceptedFinding(t *testing.T) {
+	zeros := strings.Repeat("0", 32)
+	db := newDB(t)
+	src := t.TempDir()
+	write(t, src, "src/Auth/OfflineAuth.cs", `private const string OfflineToken = "`+zeros+`";`+"\n")
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	p := ingest.New(db, logger, ingest.WithSecretScanner(security.NewScanner([]security.Accept{{
+		Rule:       "generic-credential-assignment",
+		Identifier: "token",
+		Value:      zeros,
+		Paths:      []string{"src/**/OfflineAuth.cs"},
+		Reason:     "offline placeholder",
+	}})))
+	summary, err := p.Run(context.Background(), ingest.Options{
+		Root:       src,
+		Collection: "c",
+		Rules:      ingest.Rules{Include: []string{"**/*.cs"}},
+		Chunking:   chunk.Config{TargetTokens: 700, OverlapTokens: 80},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.FilesIngested)
+
+	out := logs.String()
+	require.Contains(t, out, `msg="ingest accepted secret finding" uri=src/Auth/OfflineAuth.cs rule=generic-credential-assignment reason="offline placeholder"`)
+	require.NotContains(t, out, zeros, "the accepted value must never reach the log")
 }
