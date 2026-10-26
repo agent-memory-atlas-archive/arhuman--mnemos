@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -157,4 +158,68 @@ func TestRunWithoutScannerIndexesEverything(t *testing.T) {
 		})
 	require.NoError(t, err)
 	require.Equal(t, 1, summary.FilesIngested, "no scanner means no screening")
+}
+
+// TestIngestAcceptedPlaceholder is the GH-49 case end to end: a documented
+// all-zero placeholder is indexed when a matching [[security.accept]] entry
+// covers it, skipped without one, and still skipped when the same file also
+// holds a real credential, since an entry drops one finding, never the file.
+func TestIngestAcceptedPlaceholder(t *testing.T) {
+	const placeholder = "// Fixed offline fallback placeholder, not a credential.\n" +
+		"private const string OfflineToken = \"00000000000000000000000000000000\";\n"
+	accept := []security.Accept{{
+		Rule:       "generic-credential-assignment",
+		Identifier: "token",
+		Value:      "00000000000000000000000000000000",
+		Paths:      []string{"src/**/OfflineAuth.cs"},
+		Reason:     "offline fallback placeholder",
+	}}
+	require.NoError(t, security.ValidateAccepts(accept))
+
+	cases := []struct {
+		name    string
+		content string
+		accepts []security.Accept
+		indexed bool
+	}{
+		{"accepted placeholder is indexed", placeholder, accept, true},
+		{"placeholder without an entry is skipped", placeholder, nil, false},
+		{"another credential in the file still skips it", placeholder + "// AKIAQYLPMN5HXYZ12345\n", accept, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := newDB(t)
+			src := t.TempDir()
+			write(t, src, "src/Auth/OfflineAuth.cs", tc.content)
+
+			// Through the watcher, so its scanner wiring is what is under test: its
+			// startup reconcile is a full ingest, done once Ready closes.
+			w, err := ingest.NewWatcher(db, slog.New(slog.NewTextHandler(io.Discard, nil)), src, "c", ingest.WatchConfig{
+				Include:       []string{"**/*.cs"},
+				Chunking:      chunk.Config{TargetTokens: 700, OverlapTokens: 80},
+				ScanSecrets:   true,
+				SecretAccepts: tc.accepts,
+			})
+			require.NoError(t, err)
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			go func() { done <- w.Run(ctx) }()
+			t.Cleanup(func() { cancel(); <-done })
+			select {
+			case <-w.Ready():
+			case runErr := <-done:
+				t.Fatalf("watcher exited before ready: %v", runErr)
+			case <-time.After(10 * time.Second):
+				t.Fatal("watcher did not become ready")
+			}
+
+			chunks, err := storage.GetChunksByDocURI(context.Background(), db, "src/Auth/OfflineAuth.cs")
+			require.NoError(t, err)
+			if tc.indexed {
+				require.NotEmpty(t, chunks)
+			} else {
+				require.Empty(t, chunks)
+			}
+		})
+	}
 }

@@ -50,6 +50,7 @@ func runWatch(cmd *cobra.Command, state *rootState, path, collection string) err
 			MaxFileBytes:    a.Config.Indexing.MaxFileBytes,
 			Encoding:        encodingRules(a.Config.EncodingRules()),
 			ScanSecrets:     a.Config.Security.ExcludeSecrets,
+			SecretAccepts:   a.Config.Security.Accept,
 		})
 		if err != nil {
 			return err

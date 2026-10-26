@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- 2026-10-26: `[[security.accept]]` entries in `mnemos.toml` declare a secret
+  scanner finding known not to be a secret, such as an all-zero placeholder
+  token. An entry names the rule, the matched keyword, the exact value, path
+  globs and a reason; it drops that one finding, so any other finding still
+  skips the file, and remembered text is never exempt. Entries that could never
+  match are rejected at load.
 - 2026-10-10: `mnemos hook stop`, a Claude Code `Stop` hook that writes one
   condensed journal entry per turn (request, files touched, final assistant text)
   under `kb/journal/<date>/`. Gated by `[mcp].allow_write`, secret-scanned, and

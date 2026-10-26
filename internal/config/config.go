@@ -7,8 +7,10 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/arhuman/mnemos/internal/encoding"
+	"github.com/arhuman/mnemos/internal/security"
 	"github.com/knadh/koanf/parsers/toml/v2"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/rawbytes"
@@ -134,6 +136,10 @@ type SecurityConfig struct {
 	ExcludeSecrets bool             `koanf:"exclude_secrets"`
 	Exclude        []string         `koanf:"exclude"`
 	Visibility     VisibilityConfig `koanf:"visibility"`
+	// Accept lists the scanner findings known not to be secrets
+	// ([[security.accept]]). Each entry drops one finding shape at its paths,
+	// never a whole file, and is validated at load by security.ValidateAccepts.
+	Accept []security.Accept `koanf:"accept"`
 }
 
 // VisibilityConfig lists collections hidden from every query surface. The deny
@@ -221,6 +227,20 @@ exclude = [
   "**/id_rsa",
   "**/secrets/**",
 ]
+# Accepted findings: a scanner match known not to be a secret (an all-zero
+# offline token, a documented example key). An entry drops that one finding at
+# the listed paths; any other finding still skips the file, and remembered text
+# is never exempt. For placeholders only, never real credentials: this file may
+# itself be indexed or backed up. identifier is the matched keyword of the
+# generic rule (api_key, secret, token, password); omit it for provider rules,
+# whose value is the whole match. paths are globs relative to the kb root.
+# Example:
+#   [[security.accept]]
+#   rule = "generic-credential-assignment"
+#   identifier = "token"
+#   value = "00000000000000000000000000000000"
+#   paths = ["src/**/OfflineAuth.cs"]
+#   reason = "offline fallback placeholder"
 
 [security.visibility]
 # Collections hidden from every query surface (search, context, read, list, task),
@@ -301,9 +321,11 @@ func Load(path string, fileExists func(string) bool) (*Config, error) {
 }
 
 // validate rejects loaded values the defaults cannot cover for: an unknown
-// [mcp].result_mode would silently degrade the MCP wire shape, and an
-// unresolvable [[indexing.encoding]] charset would fail per-file mid-ingest
-// after a partial index. Both are caught at load time instead.
+// [mcp].result_mode would silently degrade the MCP wire shape, an unresolvable
+// [[indexing.encoding]] charset would fail per-file mid-ingest after a partial
+// index, and a [[security.accept]] entry that can never match would leave its
+// file silently skipped. All are caught at load time instead. Accept entries
+// are trimmed in place first.
 func (c *Config) validate() error {
 	switch c.MCP.ResultMode {
 	case "text", "structured", "both":
@@ -320,5 +342,22 @@ func (c *Config) validate() error {
 		}
 	}
 
+	for i := range c.Security.Accept {
+		trimAccept(&c.Security.Accept[i])
+	}
+	if err := security.ValidateAccepts(c.Security.Accept); err != nil {
+		return fmt.Errorf("config: [[security.accept]]: %w", err)
+	}
+
 	return nil
+}
+
+func trimAccept(a *security.Accept) {
+	a.Rule = strings.TrimSpace(a.Rule)
+	a.Identifier = strings.TrimSpace(a.Identifier)
+	a.Value = strings.TrimSpace(a.Value)
+	a.Reason = strings.TrimSpace(a.Reason)
+	for i, p := range a.Paths {
+		a.Paths[i] = strings.TrimSpace(p)
+	}
 }

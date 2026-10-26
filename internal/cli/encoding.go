@@ -22,7 +22,7 @@ func pipelineOptions(a *app.App) []ingest.Option {
 		ingest.WithEncodings(encodingRules(a.Config.EncodingRules())),
 	}
 	if a.Config.Security.ExcludeSecrets {
-		opts = append(opts, ingest.WithSecretScanner(security.NewRegexScanner()))
+		opts = append(opts, ingest.WithSecretScanner(security.NewScanner(a.Config.Security.Accept)))
 	}
 
 	return opts

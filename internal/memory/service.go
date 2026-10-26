@@ -38,15 +38,15 @@ type Service struct {
 // New builds a Service. cfg supplies the write/capture/indexing settings and the
 // gate flags read by the write verbs; treeRoot confines every caller-supplied
 // path; scanner screens captured/converted text for secrets (a nil scanner
-// defaults to a regex scanner so the write verbs are always guarded); logger
-// writes diagnostics. The configured [search].default_limit is applied by
+// defaults to one honoring cfg's accepted findings, so the write verbs are
+// always guarded); logger writes diagnostics. The configured [search].default_limit is applied by
 // Search/Context when a caller leaves limit unset.
 func New(db *sql.DB, cfg *config.Config, treeRoot string, scanner security.SecretScanner, logger *slog.Logger) *Service {
 	if cfg == nil {
 		cfg = &config.Config{}
 	}
 	if scanner == nil {
-		scanner = security.NewRegexScanner()
+		scanner = security.NewScanner(cfg.Security.Accept)
 	}
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)

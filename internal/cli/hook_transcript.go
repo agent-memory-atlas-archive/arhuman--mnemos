@@ -56,7 +56,7 @@ func hookStop(cmd *cobra.Command, state *rootState) {
 	}
 
 	_ = withStore(state, false, func(a *app.App) error {
-		svc := memory.New(a.DB, a.Config, a.TreeRoot(), security.NewRegexScanner(), a.Logger)
+		svc := memory.New(a.DB, a.Config, a.TreeRoot(), security.NewScanner(a.Config.Security.Accept), a.Logger)
 		turn.SessionID = in.SessionID
 		_, rerr := svc.WriteJournalEntry(ctx(cmd), turn)
 		if rerr != nil {

@@ -54,6 +54,9 @@ type WatchConfig struct {
 	// live edit is held to the same bar as a batch ingest. Mirrors
 	// [security].exclude_secrets.
 	ScanSecrets bool
+	// SecretAccepts are the [[security.accept]] findings the scanner drops,
+	// already validated at config load. Ignored unless ScanSecrets is set.
+	SecretAccepts []security.Accept
 }
 
 // Watcher incrementally keeps a collection in sync with a directory tree. It
@@ -104,7 +107,7 @@ func NewWatcher(db *sql.DB, logger *slog.Logger, root, collection string, cfg Wa
 	// `watch` honors `max_file_bytes = 0` (disable) identically to `ingest`.
 	popts := []Option{WithMaxFileBytes(cfg.MaxFileBytes), WithEncodings(cfg.Encoding)}
 	if cfg.ScanSecrets {
-		popts = append(popts, WithSecretScanner(security.NewRegexScanner()))
+		popts = append(popts, WithSecretScanner(security.NewScanner(cfg.SecretAccepts)))
 	}
 	pipeline := New(db, logger, popts...)
 	// Report a bad charset here rather than at the first matching file: the

@@ -165,3 +165,55 @@ temporal_halflife = "24h"
 	require.InDelta(t, 0.75, cfg.Search.TemporalWeight, 1e-9)
 	require.Equal(t, "24h", cfg.Search.TemporalHalflife)
 }
+
+// TestSecurityAccept pins the [[security.accept]] load contract: none by
+// default, entries decoded and trimmed, and an entry that could never match
+// rejected at load rather than leaving its file silently skipped.
+func TestSecurityAccept(t *testing.T) {
+	t.Run("empty by default", func(t *testing.T) {
+		cfg, err := config.Load("", missing)
+		require.NoError(t, err)
+		require.Empty(t, cfg.Security.Accept)
+	})
+
+	t.Run("decoded and trimmed", func(t *testing.T) {
+		path := writeFile(t, t.TempDir(), "mnemos.toml", `
+[[security.accept]]
+rule = "generic-credential-assignment"
+identifier = " token "
+value = " 00000000000000000000000000000000 "
+paths = [" src/**/OfflineAuth.cs "]
+reason = "offline fallback placeholder"
+`)
+		cfg, err := config.Load(path, exists)
+		require.NoError(t, err)
+		require.Len(t, cfg.Security.Accept, 1)
+		a := cfg.Security.Accept[0]
+		require.Equal(t, "generic-credential-assignment", a.Rule)
+		require.Equal(t, "token", a.Identifier)
+		require.Equal(t, "00000000000000000000000000000000", a.Value)
+		require.Equal(t, []string{"src/**/OfflineAuth.cs"}, a.Paths)
+		require.Equal(t, "offline fallback placeholder", a.Reason)
+	})
+
+	for name, entry := range map[string]string{
+		"unknown rule": `rule = "no-such-rule"
+value = "00000000000000000000000000000000"
+paths = ["**"]
+reason = "r"`,
+		"missing reason": `rule = "generic-credential-assignment"
+identifier = "token"
+value = "00000000000000000000000000000000"
+paths = ["**"]`,
+		"missing paths": `rule = "generic-credential-assignment"
+identifier = "token"
+value = "00000000000000000000000000000000"
+reason = "r"`,
+	} {
+		t.Run("rejects "+name, func(t *testing.T) {
+			path := writeFile(t, t.TempDir(), "mnemos.toml", "[[security.accept]]\n"+entry+"\n")
+			_, err := config.Load(path, exists)
+			require.ErrorContains(t, err, "[[security.accept]]")
+		})
+	}
+}

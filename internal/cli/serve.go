@@ -40,7 +40,7 @@ func runServe(cmd *cobra.Command, state *rootState) error {
 		if err != nil {
 			return err
 		}
-		srv := mcp.NewServer(a.DB, retriever, a.Config, a.TreeRoot(), security.NewRegexScanner(), a.Logger)
+		srv := mcp.NewServer(a.DB, retriever, a.Config, a.TreeRoot(), security.NewScanner(a.Config.Security.Accept), a.Logger)
 
 		if a.Config.MCP.AllowWrite {
 			a.Logger.Info("mcp write-back enabled", "capture_dir", a.Layout.Capture)
