@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-26
+
 ### Added
 - 2026-10-26: `[[security.accept]]` entries in `mnemos.toml` declare a secret
   scanner finding known not to be a secret, such as an all-zero placeholder
